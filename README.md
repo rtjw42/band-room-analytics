@@ -3,7 +3,7 @@
 Descriptive analysis of the booking database behind a university hall's band-room booking
 system: demand, room usage, booking behaviour, approval latency and data quality.
 
-- **Live report:** _link added once deployed_
+- **Live report:** [band-room-report.streamlit.app](https://band-room-report.streamlit.app/)
 - **Booking system source:** [rtjw42/ehbr-public](https://github.com/rtjw42/ehbr-public)
 
 ## Scope
