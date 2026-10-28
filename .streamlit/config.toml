@@ -3,3 +3,28 @@ toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false
+
+# Matches the band room site's design language: Outfit throughout with semibold
+# headings, cream and cocoa in light mode, warm charcoal in dark. Values are the
+# site's own tokens converted to hex.
+[theme]
+font = "Outfit:https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap, sans-serif"
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+baseRadius = "0.75rem"
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#563c29"
+backgroundColor = "#f9f6f1"
+secondaryBackgroundColor = "#f0ece6"
+textColor = "#372c25"
+linkColor = "#563c29"
+borderColor = "#e2dcd4"
+
+[theme.dark]
+primaryColor = "#efeae1"
+backgroundColor = "#1d1916"
+secondaryBackgroundColor = "#272320"
+textColor = "#efeae1"
+linkColor = "#efeae1"
+borderColor = "#3a332d"

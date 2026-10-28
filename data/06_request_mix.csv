@@ -1,6 +1,13 @@
-dimension,label,requests,sessions
-Outcome,Approved,101,110
-Outcome,Bumped,7,7
-Type,one-off,92,92
-Type,custom,8,16
-Type,pattern,1,2
+period_order,period,dimension,label,requests,sessions
+1,All time,Outcome,Approved,98,107
+1,All time,Outcome,Bumped,7,7
+1,All time,Type,one-off,89,89
+1,All time,Type,custom,8,16
+1,All time,Type,pattern,1,2
+2,Last 8 weeks,Outcome,Approved,61,67
+2,Last 8 weeks,Type,one-off,57,57
+2,Last 8 weeks,Type,custom,3,8
+2,Last 8 weeks,Type,pattern,1,2
+3,Last 4 weeks,Outcome,Approved,40,43
+3,Last 4 weeks,Type,one-off,38,38
+3,Last 4 weeks,Type,custom,2,5

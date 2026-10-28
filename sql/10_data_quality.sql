@@ -27,6 +27,10 @@ from (values
   (6, 'Approved sessions later displaced by an overlapping approval',
       (select count(*) from public.bookings where status = 'rejected'), 'sessions'),
   (7, 'Pending requests at snapshot time',
-      (select count(distinct coalesce(group_id, id)) from public.bookings where status = 'pending'), 'requests')
+      (select count(distinct coalesce(group_id, id)) from public.bookings where status = 'pending'), 'requests'),
+  (8, 'Displaced sessions scheduled before the first approved session',
+      (select count(*) from public.bookings
+       where status = 'rejected'
+         and start_time < (select min(start_time) from public.bookings where status = 'approved')), 'sessions')
 ) v(sort, check_name, affected, unit)
 order by sort;

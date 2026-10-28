@@ -1,59 +1,48 @@
--- KPI tiles, long format (one row per metric). A request is coalesce(group_id, id):
--- a multi-date or weekly submission counts once. "Public" = approved requests that
--- were updated after insert, i.e. requested and then approved; admin-entered rows
--- are inserted already approved and never updated. Approval time is ESTIMATED as
--- max(updated_at), which an edit after approval inflates (exact data: booking_events).
-with req as (
-  select coalesce(group_id, id)            as rid,
-         min(created_at)                   as asked,
+-- Request counts per period, one row per period.
+-- Periods (all time, last 8 weeks, last 4 weeks) end at the start of the current week, SGT,
+-- so every figure covers complete weeks only and no upcoming sessions. A request belongs
+-- to the period it was submitted in; a session to the period it took place in.
+-- "Public" = requested through the site, then approved (updated_at > created_at on some row).
+-- Approval time is ESTIMATED as max(updated_at); an edit after approval inflates it.
+with bounds as (
+  select date_trunc('week', now() at time zone 'Asia/Singapore') as cutoff  -- start of the current week, SGT
+),
+periods(period_order, period, start_local, end_local) as (
+  select 1, 'All time', timestamp '-infinity', cutoff from bounds
+  union all select 2, 'Last 8 weeks', cutoff - interval '8 weeks', cutoff from bounds
+  union all select 3, 'Last 4 weeks', cutoff - interval '4 weeks', cutoff from bounds
+),
+req as (
+  select min(created_at)                   as asked,
          max(updated_at)                   as last_update,
          min(start_time)                   as first_session,
          bool_and(status = 'approved')     as approved,
          bool_and(updated_at = created_at) as admin_entered,
          bool_or(group_id is not null)     as grouped
   from public.bookings
-  group by 1
+  group by coalesce(group_id, id)
 ),
-pub as (
-  select * from req where approved and not admin_entered
-),
-hrs as (
-  select extract(isodow from s)::int as weekday, extract(hour from s)::int as hour
-  from public.bookings b,
-       generate_series(date_trunc('hour', b.start_time at time zone 'Asia/Singapore'),
-                       (b.end_time at time zone 'Asia/Singapore') - interval '1 second',
-                       interval '1 hour') s
-  where b.status = 'approved'
+rp as (
+  select p.period_order, p.period, p.start_local, p.end_local, r.*
+  from periods p
+  left join req r on r.asked at time zone 'Asia/Singapore' >= p.start_local and r.asked at time zone 'Asia/Singapore' < p.end_local
 )
-select sort, metric, value, unit, note
-from (values
-  (1, 'Requests', (select count(*) from req)::numeric, 'requests',
-      'All requests since launch, any outcome'),
-  (2, 'Public requests approved', (select count(*) from pub)::numeric, 'requests',
-      'Requested by a booker, then approved by an admin'),
-  (3, 'Bumped bookings', (select count(*) from public.bookings where status = 'rejected')::numeric, 'sessions',
-      'Approved, then displaced by an overlapping approval'),
-  (4, 'Median lead time', (select round((percentile_cont(0.5) within group (order by extract(epoch from first_session - asked) / 86400))::numeric, 1) from pub), 'days',
-      'Submission to first session, public requests'),
-  (5, 'Median approval wait', (select round((percentile_cont(0.5) within group (order by extract(epoch from last_update - asked) / 3600))::numeric, 1) from pub), 'hours',
-      'Estimate: max(updated_at) - created_at'),
-  (6, 'P90 approval wait', (select round((percentile_cont(0.9) within group (order by extract(epoch from last_update - asked) / 3600))::numeric, 1) from pub), 'hours',
-      'Estimate; 1 in 10 public requests waits at least this long'),
-  (7, 'Under 24h notice', (select round(100.0 * count(*) filter (where first_session - last_update < interval '24 hours') / count(*), 1) from pub), 'percent',
-      'Approved less than 24h before the first session; includes unavoidable last-minute bookings'),
-  (8, 'Avoidable late notice', (select round(100.0 * count(*) filter (where first_session - last_update < interval '24 hours') / nullif(count(*), 0), 1) from pub where first_session - asked >= interval '48 hours'), 'percent',
-      'Booked 48h+ ahead, still approved under 24h before the session'),
-  (9, 'Avoidable late notice (count)', (select count(*) filter (where first_session - last_update < interval '24 hours') from pub where first_session - asked >= interval '48 hours')::numeric, 'requests',
-      'Numerator of the row above'),
-  (10, 'Approved after session start', (select count(*) filter (where first_session < last_update) from pub)::numeric, 'requests',
-      'Estimate; may be an edit after the session rather than a late approval'),
-  (11, 'Recurring share', (select round(100.0 * count(*) filter (where grouped) / count(*), 1) from req where approved), 'percent',
-      'Approved requests covering more than one date'),
-  (12, 'Evening share of booked hours', (select round(100.0 * count(*) filter (where hour >= 19) / count(*), 1) from hrs), 'percent',
-      '19:00-24:00 SGT, approved sessions incl. upcoming'),
-  (13, 'Under 24h notice (count)', (select count(*) filter (where first_session - last_update < interval '24 hours') from pub)::numeric, 'requests',
-      'Numerator of row 7'),
-  (14, 'Booked 48h+ ahead (count)', (select count(*) from pub where first_session - asked >= interval '48 hours')::numeric, 'requests',
-      'Denominator of row 8')
-) v(sort, metric, value, unit, note)
-order by sort;
+select period_order, period,
+       coalesce(nullif(start_local, '-infinity'), (select min(created_at at time zone 'Asia/Singapore') from public.bookings))::date as period_start,
+       (end_local - interval '1 day')::date as period_end,
+       count(asked)                                                                       as requests,
+       count(*) filter (where approved)                                                   as approved,
+       count(*) filter (where approved and not admin_entered)                             as public_approved,
+       count(*) filter (where approved and admin_entered)                                 as admin_entered,
+       count(*) filter (where approved and grouped)                                       as grouped_approved,
+       count(*) filter (where approved and not admin_entered
+                          and first_session - last_update < interval '24 hours')          as under_24h,
+       count(*) filter (where approved and not admin_entered
+                          and first_session - asked >= interval '48 hours')               as booked_48h_ahead,
+       count(*) filter (where approved and not admin_entered
+                          and first_session - asked >= interval '48 hours'
+                          and first_session - last_update < interval '24 hours')          as avoidable_late,
+       count(*) filter (where approved and not admin_entered and first_session < last_update) as approved_after_start
+from rp
+group by period_order, period, start_local, end_local
+order by period_order;

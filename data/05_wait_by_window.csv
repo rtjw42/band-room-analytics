@@ -1,16 +1,46 @@
-submitted_window,bin_order,wait_bin,requests,window_requests,window_median_hours
-Weekday daytime,1,Under 1h,17,27,0.3
-Weekday daytime,2,1-6h,5,27,0.3
-Weekday daytime,3,6-24h,3,27,0.3
-Weekday daytime,4,1-2 days,1,27,0.3
-Weekday daytime,5,2+ days,1,27,0.3
-Weekday late night,1,Under 1h,7,17,14.1
-Weekday late night,2,1-6h,0,17,14.1
-Weekday late night,3,6-24h,6,17,14.1
-Weekday late night,4,1-2 days,2,17,14.1
-Weekday late night,5,2+ days,2,17,14.1
-Weekend,1,Under 1h,10,26,3.3
-Weekend,2,1-6h,5,26,3.3
-Weekend,3,6-24h,4,26,3.3
-Weekend,4,1-2 days,4,26,3.3
-Weekend,5,2+ days,3,26,3.3
+period_order,period,submitted_window,bin_order,wait_bin,requests,window_requests,window_median_hours
+1,All time,Weekday daytime,1,Under 1h,15,25,0.3
+1,All time,Weekday daytime,2,1-6h,5,25,0.3
+1,All time,Weekday daytime,3,6-24h,3,25,0.3
+1,All time,Weekday daytime,4,1-2 days,1,25,0.3
+1,All time,Weekday daytime,5,2+ days,1,25,0.3
+1,All time,Weekday late night,1,Under 1h,7,16,10.7
+1,All time,Weekday late night,2,1-6h,0,16,10.7
+1,All time,Weekday late night,3,6-24h,5,16,10.7
+1,All time,Weekday late night,4,1-2 days,2,16,10.7
+1,All time,Weekday late night,5,2+ days,2,16,10.7
+1,All time,Weekend,1,Under 1h,10,26,3.3
+1,All time,Weekend,2,1-6h,5,26,3.3
+1,All time,Weekend,3,6-24h,4,26,3.3
+1,All time,Weekend,4,1-2 days,4,26,3.3
+1,All time,Weekend,5,2+ days,3,26,3.3
+2,Last 8 weeks,Weekday daytime,1,Under 1h,12,20,0.4
+2,Last 8 weeks,Weekday daytime,2,1-6h,4,20,0.4
+2,Last 8 weeks,Weekday daytime,3,6-24h,2,20,0.4
+2,Last 8 weeks,Weekday daytime,4,1-2 days,1,20,0.4
+2,Last 8 weeks,Weekday daytime,5,2+ days,1,20,0.4
+2,Last 8 weeks,Weekday late night,1,Under 1h,4,10,10.7
+2,Last 8 weeks,Weekday late night,2,1-6h,0,10,10.7
+2,Last 8 weeks,Weekday late night,3,6-24h,4,10,10.7
+2,Last 8 weeks,Weekday late night,4,1-2 days,2,10,10.7
+2,Last 8 weeks,Weekday late night,5,2+ days,0,10,10.7
+2,Last 8 weeks,Weekend,1,Under 1h,8,18,2.9
+2,Last 8 weeks,Weekend,2,1-6h,3,18,2.9
+2,Last 8 weeks,Weekend,3,6-24h,3,18,2.9
+2,Last 8 weeks,Weekend,4,1-2 days,4,18,2.9
+2,Last 8 weeks,Weekend,5,2+ days,0,18,2.9
+3,Last 4 weeks,Weekday daytime,1,Under 1h,10,17,0.4
+3,Last 4 weeks,Weekday daytime,2,1-6h,4,17,0.4
+3,Last 4 weeks,Weekday daytime,3,6-24h,1,17,0.4
+3,Last 4 weeks,Weekday daytime,4,1-2 days,1,17,0.4
+3,Last 4 weeks,Weekday daytime,5,2+ days,1,17,0.4
+3,Last 4 weeks,Weekday late night,1,Under 1h,2,5,7.4
+3,Last 4 weeks,Weekday late night,2,1-6h,0,5,7.4
+3,Last 4 weeks,Weekday late night,3,6-24h,2,5,7.4
+3,Last 4 weeks,Weekday late night,4,1-2 days,1,5,7.4
+3,Last 4 weeks,Weekday late night,5,2+ days,0,5,7.4
+3,Last 4 weeks,Weekend,1,Under 1h,4,11,4.4
+3,Last 4 weeks,Weekend,2,1-6h,3,11,4.4
+3,Last 4 weeks,Weekend,3,6-24h,0,11,4.4
+3,Last 4 weeks,Weekend,4,1-2 days,4,11,4.4
+3,Last 4 weeks,Weekend,5,2+ days,0,11,4.4

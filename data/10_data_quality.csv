@@ -6,3 +6,4 @@ sort,check_name,affected,unit
 5,Sessions running past 03:00 SGT,2,sessions
 6,Approved sessions later displaced by an overlapping approval,7,sessions
 7,Pending requests at snapshot time,0,requests
+8,Displaced sessions scheduled before the first approved session,7,sessions
