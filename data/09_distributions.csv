@@ -1,0 +1,5 @@
+sort,metric,unit,n,p25,median,p75,p90,min,max
+1,Lead time (request to first session),days,70,1.2,2.9,4.2,9.9,0.0,37.9
+2,Approval wait (estimated),hours,70,0.1,1.5,15.3,46.6,0.0,496.5
+3,Notice before first session (estimated),hours,70,14.9,51.2,90.2,189.2,-31.6,894.7
+4,Session length,hours,110,2.0,2.0,3.0,4.0,0.5,8.0

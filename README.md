@@ -1,56 +1,62 @@
-# Band room bookings
+# Band room booking report
 
-An analysis of six months of data from the band-room booking system I built and run for my
-university hall. Bands request a slot online and an admin approves it.
+Descriptive analysis of the booking database behind a university hall's band-room booking
+system: demand, room usage, booking behaviour, approval latency and data quality.
 
-**Live dashboard:** _link coming once deployed_
-**The booking app itself:** [rtjw42/ehbr-public](https://github.com/rtjw42/ehbr-public)
+- **Live report:** _link added once deployed_
+- **Booking system source:** [rtjw42/ehbr-public](https://github.com/rtjw42/ehbr-public)
 
-## The questions
+## Scope
 
-1. When is the room actually in demand?
-2. How long do people wait for an approval, and when does that wait cause problems?
+| | |
+|---|---|
+| Source | Booking database (Postgres, Supabase): `bookings`, `booking_groups` |
+| Period | 29 Apr – 28 Oct 2026 |
+| Snapshot | 28 Oct 2026, SGT |
+| Size | 108 requests, 117 sessions; 70 public requests with a measurable wait |
+| Unit | Request (`coalesce(group_id, id)`) unless stated |
 
-## What I found (data as of 28 October 2026)
+## Key results (snapshot 28 Oct 2026)
 
-- **Demand roughly doubled** between July and October, from about 4.5 to 10 requests a week.
-- **It's an evening room.** 69% of booked hours fall between 7pm and midnight. Wednesday
-  evenings were 62.5% booked over the last eight weeks; Monday evenings 20%.
-- **Most approvals are fast, a few are very slow.** The median wait is 1.5 hours; the slowest
-  10% wait 46.6 hours or more.
-- **The obvious metric was misleading.** 33% of bookers heard back less than 24 hours before
-  their session, but most of them had booked at the last minute. Counting only people who
-  booked two or more days ahead, 5 of 43 (11.6%) still heard back late. That is the number
-  worth fixing.
-- **My first hypothesis was wrong.** I expected weekend requests to wait longest (median
-  3.3 hours). Requests sent between 11pm and 7am do (median 14.1 hours).
+| Metric | Value |
+|---|---|
+| Requests per week, last 4 complete weeks vs July | 10.0 vs 4.5 |
+| Booked hours falling in 19:00–24:00 | 69.4% |
+| Evening occupancy, last 8 weeks (Wednesday / all days) | 62.5% / 38.9% |
+| Lead time, median (IQR) | 2.9 days (1.2–4.2) |
+| Approval wait, median / p90 (estimated) | 1.5 h / 46.6 h |
+| Median wait by submission window: daytime / weekend / late night | 0.3 h / 3.3 h / 14.1 h |
+| Approved < 24 h before first session (estimated) | 32.9% (23 of 70) |
+| Same, among requests made ≥ 48 h ahead | 11.6% (5 of 43) |
 
-The recommendation, and how it will be measured, is in the dashboard.
-
-## How it's built
+## Repository layout
 
 ```
-Postgres (Supabase)  →  SQL in sql/  →  aggregate CSVs in data/  →  pandas + Plotly  →  Streamlit
+sql/    one query per dataset (Postgres)
+data/   aggregate CSVs produced by those queries, one snapshot
+app.py  the report (Streamlit, pandas, Plotly); every figure is computed from data/
 ```
 
-- `sql/` holds the query behind each CSV.
-- `data/` is one dated snapshot of aggregates.
-- `app.py` is the dashboard. Every number in its text is computed from `data/`, so a new
-  snapshot updates the charts and the prose together.
+`NN_name.sql` produces `NN_name.csv`. The report's text, tables and charts are computed from
+the CSVs at load time, so replacing `data/` with a new snapshot updates all of them.
+
+## Data quality
+
+- **No approval timestamp** in the source table. Approval time is estimated as
+  `max(updated_at)`, which overstates waits for bookings edited after approval.
+- **Declined requests are hard-deleted**, so decline rate is not measurable from this snapshot.
+- **Admin-entered requests** (31) are identified by `updated_at = created_at` and excluded from
+  wait and lead-time metrics.
+- Instrumentation added on 28 Oct 2026 (an event log of status changes and hourly booking-form
+  step counts) removes the first two gaps from the next snapshot onward.
+
+The full list, with counts, is in section 7 of the report.
 
 ## Privacy
 
-This repo holds aggregate counts only: no names, booking titles, notes or row-level records.
+Aggregate counts only. No names, booking titles, notes, identifiers or row-level records.
 
-## Caveats
-
-The booking database has no approval timestamp, so approval wait is estimated from when each
-booking was last updated, which can overstate a wait. Exact timings are being collected from
-28 October 2026 by a new event log. The sample is small (70 approved requests made through the
-site), so the analysis uses medians and percentiles rather than averages. Full notes are in the
-dashboard's "Method and caveats" section.
-
-## Run it locally
+## Running locally
 
 ```bash
 python3 -m venv .venv
