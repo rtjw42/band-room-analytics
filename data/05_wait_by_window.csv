@@ -1,0 +1,16 @@
+submitted_window,bin_order,wait_bin,requests,window_requests,window_median_hours
+Weekday daytime,1,Under 1h,17,27,0.3
+Weekday daytime,2,1-6h,5,27,0.3
+Weekday daytime,3,6-24h,3,27,0.3
+Weekday daytime,4,1-2 days,1,27,0.3
+Weekday daytime,5,2+ days,1,27,0.3
+Weekday late night,1,Under 1h,7,17,14.1
+Weekday late night,2,1-6h,0,17,14.1
+Weekday late night,3,6-24h,6,17,14.1
+Weekday late night,4,1-2 days,2,17,14.1
+Weekday late night,5,2+ days,2,17,14.1
+Weekend,1,Under 1h,10,26,3.3
+Weekend,2,1-6h,5,26,3.3
+Weekend,3,6-24h,4,26,3.3
+Weekend,4,1-2 days,4,26,3.3
+Weekend,5,2+ days,3,26,3.3

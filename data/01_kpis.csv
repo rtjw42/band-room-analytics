@@ -1,0 +1,13 @@
+sort,metric,value,unit,note
+1,Requests,108,requests,"All requests since launch, any outcome"
+2,Public requests approved,70,requests,"Requested by a booker, then approved by an admin"
+3,Bumped bookings,7,sessions,"Approved, then displaced by an overlapping approval"
+4,Median lead time,2.9,days,"Submission to first session, public requests"
+5,Median approval wait,1.5,hours,Estimate: max(updated_at) - created_at
+6,P90 approval wait,46.6,hours,Estimate; 1 in 10 public requests waits at least this long
+7,Under 24h notice,32.9,percent,Approved less than 24h before the first session; includes unavoidable last-minute bookings
+8,Avoidable late notice,11.6,percent,"Booked 48h+ ahead, still approved under 24h before the session"
+9,Avoidable late notice (count),5,requests,Numerator of the row above
+10,Approved after session start,3,requests,Estimate; may be an edit after the session rather than a late approval
+11,Recurring share,8.9,percent,Approved requests covering more than one date
+12,Evening share of booked hours,69.4,percent,"19:00-24:00 SGT, approved sessions incl. upcoming"

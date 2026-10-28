@@ -1,0 +1,6 @@
+bin_order,bin,sessions,median_hours
+1,Up to 1h,4,2.0
+2,1-2h,58,2.0
+3,2-3h,26,2.0
+4,3-4h,12,2.0
+5,Over 4h,10,2.0

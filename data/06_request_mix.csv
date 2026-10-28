@@ -1,0 +1,6 @@
+dimension,label,requests,sessions
+Outcome,Approved,101,110
+Outcome,Bumped,7,7
+Type,one-off,92,92
+Type,custom,8,16
+Type,pattern,1,2

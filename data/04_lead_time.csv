@@ -1,0 +1,7 @@
+bin_order,bin,requests
+1,Under 1 day,16
+2,1-2 days,11
+3,2-3 days,12
+4,3-7 days,19
+5,1-2 weeks,7
+6,2+ weeks,5
