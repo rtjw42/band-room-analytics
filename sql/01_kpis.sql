@@ -50,6 +50,10 @@ from (values
   (11, 'Recurring share', (select round(100.0 * count(*) filter (where grouped) / count(*), 1) from req where approved), 'percent',
       'Approved requests covering more than one date'),
   (12, 'Evening share of booked hours', (select round(100.0 * count(*) filter (where hour >= 19) / count(*), 1) from hrs), 'percent',
-      '19:00-24:00 SGT, approved sessions incl. upcoming')
+      '19:00-24:00 SGT, approved sessions incl. upcoming'),
+  (13, 'Under 24h notice (count)', (select count(*) filter (where first_session - last_update < interval '24 hours') from pub)::numeric, 'requests',
+      'Numerator of row 7'),
+  (14, 'Booked 48h+ ahead (count)', (select count(*) from pub where first_session - asked >= interval '48 hours')::numeric, 'requests',
+      'Denominator of row 8')
 ) v(sort, metric, value, unit, note)
 order by sort;

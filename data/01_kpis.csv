@@ -11,3 +11,5 @@ sort,metric,value,unit,note
 10,Approved after session start,3,requests,Estimate; may be an edit after the session rather than a late approval
 11,Recurring share,8.9,percent,Approved requests covering more than one date
 12,Evening share of booked hours,69.4,percent,"19:00-24:00 SGT, approved sessions incl. upcoming"
+13,Under 24h notice (count),23,requests,Numerator of row 7
+14,Booked 48h+ ahead (count),43,requests,Denominator of row 8

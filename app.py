@@ -14,9 +14,9 @@ import streamlit as st
 
 DATA = Path(__file__).parent / "data"
 SNAPSHOT = "28 Oct 2026"
-PERIOD = "29 Apr – 28 Oct 2026"
+PERIOD = "30 Apr – 28 Oct 2026"
 NEXT_RELEASE = "late Nov 2026"
-REPO_URL = ""  # set once the repo is on GitHub
+REPO_URL = "https://github.com/rtjw42/band-room-analytics"
 
 st.set_page_config(page_title="Band room booking report", layout="centered")
 
@@ -107,9 +107,9 @@ approved_requests = int(types["requests"].sum())
 recurring = types.drop(index="one-off", errors="ignore")
 
 # Approvals
-under24 = round(kpi["Under 24h notice"] / 100 * public_n)
+under24 = int(kpi["Under 24h notice (count)"])
 late_n = int(kpi["Avoidable late notice (count)"])
-planned_n = round(late_n / (kpi["Avoidable late notice"] / 100))
+planned_n = int(kpi["Booked 48h+ ahead (count)"])
 windows = pd.DataFrame(
     {
         w: {
@@ -185,7 +185,7 @@ st.markdown(
             ["Public requests, approved", public_n, "Requested through the site, then approved"],
             ["Admin-entered requests", admin_n, "Inserted already approved"],
             ["Requests per week, last 4 complete weeks", num(recent_rate), f"Weeks from {recent4['week_start'].iloc[0]:%d %b}"],
-            ["Requests per week, July", num(july_rate), "4 weeks"],
+            ["Requests per week, July", num(july_rate), "4 weeks starting in July"],
             ["Booked hours in 19:00–24:00", f"{num(evening_share)}%", f"Of {booked_hours} booked hours"],
             ["Evening occupancy, last 8 weeks", f"{num(occ_overall)}%", f"{int(occ['booked_slots'].sum())} of {int(occ['available_slots'].sum())} evening hours"],
             ["Median lead time", f"{num(lead_d['median'])} days", f"n = {int(lead_d['n'])}"],
@@ -223,7 +223,7 @@ st.markdown(
             ["Session", "One row in `bookings`."],
             ["Request", "One submission: `coalesce(group_id, id)`. A multi-date or weekly request counts once."],
             ["Public request", "Approved request with `updated_at > created_at`: submitted, then approved by an admin."],
-            ["Admin-entered request", "Approved request with `updated_at = created_at`: inserted already approved. Heuristic."],
+            ["Admin-entered request", "Approved request with `updated_at = created_at`: inserted already approved. Heuristic: an admin-entered booking edited later counts as public."],
             ["Approval time (est.)", "`max(updated_at)` across the request's rows. Overstates the wait when a booking is edited after approval."],
             ["Lead time", "First session start minus submission time."],
             ["Notice", "First session start minus approval time (est.)."],
@@ -389,7 +389,7 @@ figure(f"Figure 6. Estimated approval wait by submission window (n = {public_n})
 order = windows.index.tolist()
 fig = go.Figure()
 bins = wait[["bin_order", "wait_bin"]].drop_duplicates().sort_values("bin_order")
-for color, (_, b) in zip(RAMP, bins.iterrows()):
+for color, (_, b) in zip(RAMP, bins.iterrows(), strict=True):
     rows = wait[wait["wait_bin"] == b.wait_bin].set_index("submitted_window").loc[order]
     fig.add_bar(
         y=order,
@@ -455,7 +455,7 @@ figure("Table 5. Data-quality checks")
 impact = {
     1: ("Excluded from wait and lead-time metrics; identified by a heuristic.", "Exact from 28 Oct (event log)"),
     2: ("Inflate the wait and notice tails. Likely post-session edits or retroactive approvals.", "Unverified"),
-    3: ("Produce a negative lead time.", "Included"),
+    3: ("Part of an admin-entered request, so excluded from lead-time figures.", "No effect"),
     4: ("Weight the heatmap; may include entry errors.", "Unverified"),
     5: ("22:00–06:00 sessions in July; possibly AM/PM entry errors.", "Unverified"),
     6: ("Approving an overlapping request replaces the earlier approval.", "Logged as `bumped` from 28 Oct"),
@@ -473,7 +473,7 @@ st.markdown(
     md_table(
         [
             ["No approval timestamp", "Wait and notice are estimates", "`booking_events`: trigger on `bookings` logs each status change with the wait at decision time"],
-            ["Declined requests are hard-deleted", "Decline rate cannot be measured", "`booking_events` logs `declined` before the row is gone"],
+            ["Declined requests are hard-deleted", "Decline rate cannot be measured", "`booking_events` logs `declined` when the row is deleted"],
             ["Admin-entered rows inferred", "Heuristic exclusion", "`booking_events` logs `admin_created` directly"],
             ["No form analytics", "Drop-off unknown", "`funnel_events`: hourly counts of page view → form open → review → verification → submitted, after consent"],
         ],

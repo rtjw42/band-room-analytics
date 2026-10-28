@@ -11,7 +11,7 @@ system: demand, room usage, booking behaviour, approval latency and data quality
 | | |
 |---|---|
 | Source | Booking database (Postgres, Supabase): `bookings`, `booking_groups` |
-| Period | 29 Apr – 28 Oct 2026 |
+| Period | 30 Apr – 28 Oct 2026 |
 | Snapshot | 28 Oct 2026, SGT |
 | Size | 108 requests, 117 sessions; 70 public requests with a measurable wait |
 | Unit | Request (`coalesce(group_id, id)`) unless stated |
