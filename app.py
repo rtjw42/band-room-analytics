@@ -183,6 +183,45 @@ def single_series_bars(cats, values, hover: str, colors=None, labels=None, horiz
     return fig
 
 
+WORDS = {2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten"}
+
+
+def joined(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+# ── All-time figures (the opening summary and closing section ignore the period filter) ──
+ALL = for_period(PERIODS[0])
+complete = weekly[~weekly["partial_week"]]
+recent4 = complete.tail(4)["requests"].mean()
+july = complete.loc[complete["week_start"].dt.month == 7, "requests"].mean()
+# Rolling 4-week windows smooth a single week's 5 evening slots per day into a readable
+# share; each one ends on a Sunday and is one frame of the availability animation.
+WINDOW = 4
+used = evening_weeks.pivot(index="week_start", columns="weekday_name", values="evening_slots_in_use")[DAYS]
+used_roll = used.rolling(WINDOW).sum().dropna()
+free_roll = 100 - 100 * used_roll / (WINDOW * 5)
+labels = [date(w + pd.Timedelta(days=6)) for w in free_roll.index]
+first_free = 100 - 100 * used_roll.iloc[0].sum() / (WINDOW * 35)
+last_free = 100 - 100 * used_roll.iloc[-1].sum() / (WINDOW * 35)
+trend = "had fallen to" if last_free < first_free else "had risen to" if last_free > first_free else "was unchanged at"
+last_row = free_roll.iloc[-1]
+tightest = [DAY[d] for d, v in last_row.items() if v == last_row.min()]
+roomiest = [DAY[d] for d, v in last_row.items() if v == last_row.max()]
+ka = ALL["k"]
+wait_summary = ALL["dist"].loc[2]
+
+
+def growth(ratio: float) -> str:
+    if ratio >= 1.8:
+        return "roughly doubled"
+    if ratio > 1.15:
+        return f"grown by about {100 * (ratio - 1):.0f}%"
+    if ratio < 0.87:
+        return f"fallen by about {100 * (1 - ratio):.0f}%"
+    return "held roughly steady"
+
+
 # ── Report ───────────────────────────────────────────────────────────────────
 st.title("Band room booking report")
 st.caption(
@@ -191,14 +230,32 @@ st.caption(
     f"approval times are estimates, as section 2 explains."
 )
 
+free_change = (
+    "Evenings are filling up: the share of evening slots left free fell"
+    if last_free < first_free
+    else "The share of evening slots left free went"
+)
+quick = "Approvals are usually quick, with a median wait of" if wait_summary["median"] < 6 else "The median approval wait is"
+with st.container(border=True):
+    st.markdown("**In brief**")
+    st.markdown(
+        f"Since regular use began in July, demand for the band room has {growth(recent4 / july)}, from "
+        f"{num(july)} to {num(recent4)} requests a week, and {num(ALL['evening_share'])}% of the room's use "
+        f"falls between 7pm and midnight. {free_change} from {first_free:.0f}% in the four weeks to {labels[0]} "
+        f"to {last_free:.0f}% in the four weeks to {labels[-1]}, with {joined(tightest)} now the tightest. "
+        f"{quick} {num(wait_summary['median'])} hours, but one request in ten waits {num(wait_summary['p90'])} hours "
+        f"or more, and {int(ka['avoidable_late'])} of {int(ka['booked_48h_ahead'])} requests made at least two "
+        f"days ahead still got less than a day's notice. Section 10 sets out what these findings could feed into."
+    )
+    st.caption("This summary uses all-time figures; the period filter below does not change it.")
+
 period = st.segmented_control("Period", PERIODS, default=PERIODS[0], key="period") or PERIODS[0]
-P = for_period(period)
-ALL = P if period == PERIODS[0] else for_period(PERIODS[0])
+P = ALL if period == PERIODS[0] else for_period(period)
 k, d = P["k"], P["dist"]
 st.caption(
     f"Showing requests submitted between {date(k['period_start'])} and {date(k['period_end'])}, and "
     f"sessions held between {date(P['usage_start'])} and {date(k['period_end'])} ({P['weeks']} weeks). "
-    f"The demand chart, the availability animation and sections 8 and 9 always cover the full history."
+    f"The demand chart, the availability animation and sections 8 to 10 always cover the full history."
 )
 small = [w for w, s in P["windows"].iterrows() if s["n"] < SMALL_N]
 
@@ -209,11 +266,6 @@ busiest, quietest = P["occupancy"].idxmax(), P["occupancy"].idxmin()
 over = "the whole period" if period == PERIODS[0] else f"the {period.lower()}"
 
 
-WORDS = {2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten"}
-
-
-def joined(items: list[str]) -> str:
-    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 # 1 ─────────────────────────────────────────────────────────────────────────
 st.header("1. Summary")
@@ -283,7 +335,6 @@ st.markdown(
 # 3 ─────────────────────────────────────────────────────────────────────────
 st.header("3. Demand")
 figure(f"Figure 1. Requests per week by submission date (n = {int(weekly['requests'].sum())})")
-complete = weekly[~weekly["partial_week"]]
 fig = go.Figure()
 if period != PERIODS[0]:
     fig.add_vrect(
@@ -329,8 +380,6 @@ st.caption(
     "The chart always shows every week, with the selected period shaded. The grey bar is the current "
     "week, which is still in progress and left out of the averages."
 )
-recent4 = complete.tail(4)["requests"].mean()
-july = complete.loc[complete["week_start"].dt.month == 7, "requests"].mean()
 peak = complete.loc[complete["requests"].idxmax()]
 first_session = ALL["usage_start"]
 total_requests = int(weekly["requests"].sum())
@@ -439,13 +488,6 @@ st.markdown(
 
 # 5 ─────────────────────────────────────────────────────────────────────────
 st.header("5. Room availability")
-# Rolling 4-week windows smooth a single week's 5 evening slots per day into a readable
-# share; each frame is one window, ending on a Sunday.
-WINDOW = 4
-used = evening_weeks.pivot(index="week_start", columns="weekday_name", values="evening_slots_in_use")[DAYS]
-used_roll = used.rolling(WINDOW).sum().dropna()
-free_roll = 100 - 100 * used_roll / (WINDOW * 5)
-labels = [date(w + pd.Timedelta(days=6)) for w in free_roll.index]
 
 
 def availability_bars(row: pd.Series) -> go.Bar:
@@ -525,11 +567,6 @@ st.caption(
     "whole history, whatever the period filter."
 )
 
-first_free = 100 - 100 * used_roll.iloc[0].sum() / (WINDOW * 35)
-last_free = 100 - 100 * used_roll.iloc[-1].sum() / (WINDOW * 35)
-trend = "had fallen to" if last_free < first_free else "had risen to" if last_free > first_free else "was unchanged at"
-last_row = free_roll.iloc[-1]
-tightest = [DAY[d] for d, v in last_row.items() if v == last_row.min()]
 st.markdown(
     f"In the four weeks to {labels[0]}, {first_free:.0f}% of evening slots were free; by the four weeks to "
     f"{labels[-1]}, that {trend} {last_free:.0f}%. In the latest window, {joined(tightest)} "
@@ -758,7 +795,7 @@ st.caption(
 # 9 ─────────────────────────────────────────────────────────────────────────
 st.header("9. Findings and actions")
 st.caption("The evidence below uses all-time figures, and the last 8 weeks where stated.")
-ka, ra = ALL["k"], for_period("Last 8 weeks")
+ra = for_period("Last 8 weeks")
 slow_all = ALL["windows"]["median"].idxmax()
 busy8 = ra["occupancy"].idxmax()
 st.markdown(
@@ -800,7 +837,37 @@ st.markdown(
 )
 
 # 10 ─────────────────────────────────────────────────────────────────────────
-st.header("10. Method and reproducibility")
+st.header("10. Looking ahead")
+plural = len(tightest) > 1
+st.markdown(
+    "The findings point to a few changes worth building next, each with a number from this report to judge "
+    "it by."
+)
+st.markdown(
+    f"""
+- **A reminder for pending requests.** A nudge to admins when a request is still pending and its first
+  session is less than 48 hours away targets the {int(ka['avoidable_late'])} of {int(ka['booked_48h_ahead'])}
+  planned-ahead requests that got late notice, without adding work for the rest. The event log added on
+  28 Oct measures its effect exactly.
+- **Availability hints on the booking form.** The data behind section 5 could show bookers which evenings
+  tend to be full ({joined(tightest)} in the latest four weeks) and which have room ({joined(roomiest)}),
+  spreading demand before clashes happen. It would change what visitors see, so it is a decision for the
+  committee.
+- **Fair use of peak evenings.** If {joined(tightest)} evenings keep
+  filling up, a weekly limit per band on {'those evenings' if plural else 'that evening'} would keep the room
+  fair. Evening occupancy and displaced sessions show when it becomes necessary.
+- **A simpler booking form.** The form-step counts that started on 28 Oct will show which step loses the
+  most visitors, so the next change to the form can target that step.
+"""
+)
+st.markdown(
+    f"The next release ({NEXT_RELEASE}) replaces the estimated approval times with exact ones and adds the "
+    f"first decline-rate and form-conversion figures, giving each of these changes a proper baseline to be "
+    f"measured against."
+)
+
+# 11 ─────────────────────────────────────────────────────────────────────────
+st.header("11. Method and reproducibility")
 st.markdown(
     f"The data runs from Postgres through the SQL files in `sql/` to the aggregate CSVs in `data/`, which "
     f"pandas and Plotly turn into this Streamlit report. Each CSV comes from the SQL file with the same "

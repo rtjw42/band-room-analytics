@@ -18,7 +18,7 @@ def test_app_renders():
             at = render(period, view)
             assert not at.exception, (period, view, at.exception)
             assert at.title[0].value == "Band room booking report"
-            assert [h.value.split(".")[0] for h in at.header] == [str(i) for i in range(1, 11)]
+            assert [h.value.split(".")[0] for h in at.header] == [str(i) for i in range(1, 12)]
             assert len(at.get("plotly_chart")) == 7
 
 
