@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 DATA = Path(__file__).parent / "data"
-SNAPSHOT = "28 Oct 2026"
+SNAPSHOT = "1 Nov 2026"
 NEXT_RELEASE = "late Nov 2026"
 REPO_URL = "https://github.com/rtjw42/band-room-analytics"
 PERIODS = ["All time", "Last 8 weeks", "Last 4 weeks"]
@@ -28,20 +28,21 @@ st.set_page_config(page_title="Band room booking report", layout="centered")
 # ── Colours ──────────────────────────────────────────────────────────────────
 # The band room site's palette: ochre-to-cocoa on cream, ochre-to-sand on warm
 # charcoal; never cold blue. Each set passed the colour-blind and contrast checks
-# against the site's own surfaces (#f9f6f1 light, #1d1916 dark). The 4-week mean is
-# a reference line of the same measure, so it wears the text colour, not a hue.
+# against the site's own surfaces (#f9f6f1 light, #1d1916 dark). Single-series bars
+# use the site's button colour (--interactive-bg: warm near-black, cream in dark
+# mode); the 4-week mean line takes ochre so it stays distinct from them.
 def is_dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", "light") == "dark"
 
 
 if is_dark():
-    ACCENT, REFERENCE, MUTED, BG = "#b47a3a", "#efeae1", "#4a4038", "#1d1916"
+    ACCENT, REFERENCE, MUTED, BG, TEXT = "#efeae1", "#b47a3a", "#4a4038", "#1d1916", "#efeae1"
     SHADE = "rgba(180, 122, 58, 0.16)"
     RAMP = ["#6e4c2d", "#93683a", "#b88947", "#d9ae63", "#f2d6a0"]
     HEAT = ["#6e4c2d", "#86603a", "#a07646", "#ba8d52", "#d2a662", "#e6c07c", "#f3d9a6"]
 else:
-    ACCENT, REFERENCE, MUTED, BG = "#b0742f", "#372c25", "#d8cdbd", "#f9f6f1"
+    ACCENT, REFERENCE, MUTED, BG, TEXT = "#251e18", "#b0742f", "#d8cdbd", "#f9f6f1", "#372c25"
     SHADE = "rgba(176, 116, 47, 0.10)"
     RAMP = ["#d6a868", "#bd8648", "#9c6532", "#744523", "#4b2b16"]
     HEAT = ["#d6a868", "#c69154", "#b27a42", "#996335", "#7c4c29", "#5f381e", "#432614"]
@@ -64,6 +65,8 @@ mix_all = load("06_request_mix")
 sessions_all = load("08_session_length")
 dist_all = load("09_distributions")
 dq = load("10_data_quality").set_index("sort")
+evening_weeks = load("11_evening_by_week")
+evening_weeks["week_start"] = pd.to_datetime(evening_weeks["week_start"])
 
 DAY = {"Mon": "Monday", "Tue": "Tuesday", "Wed": "Wednesday", "Thu": "Thursday", "Fri": "Friday", "Sat": "Saturday", "Sun": "Sunday"}
 DAYS = list(DAY)
@@ -140,10 +143,10 @@ def figure(label: str) -> None:
     st.markdown(f"**{label}**")
 
 
-def show(fig: go.Figure, table: pd.DataFrame, height: int, top: int = 40) -> None:
+def show(fig: go.Figure, table: pd.DataFrame, height: int, top: int = 40, bottom: int = 8) -> None:
     fig.update_layout(
         height=height,
-        margin=dict(l=8, r=8, t=top, b=8),
+        margin=dict(l=8, r=8, t=top, b=bottom),
         font=dict(family=FONT, size=13),
         hoverlabel=dict(font=dict(family=FONT, size=13)),
         dragmode=False,
@@ -183,8 +186,9 @@ def single_series_bars(cats, values, hover: str, colors=None, labels=None, horiz
 # ── Report ───────────────────────────────────────────────────────────────────
 st.title("Band room booking report")
 st.caption(
-    f"Source: booking database (Postgres). Snapshot: {SNAPSHOT}, SGT. Periods end on the last "
-    f"complete week. Unit: request unless stated. Approval times are estimated (section 2)."
+    f"This report covers the band room's booking database as of {SNAPSHOT} (Singapore time). Each "
+    f"period ends with the last complete week, figures count requests unless stated otherwise, and "
+    f"approval times are estimates, as section 2 explains."
 )
 
 period = st.segmented_control("Period", PERIODS, default=PERIODS[0], key="period") or PERIODS[0]
@@ -192,9 +196,9 @@ P = for_period(period)
 ALL = P if period == PERIODS[0] else for_period(PERIODS[0])
 k, d = P["k"], P["dist"]
 st.caption(
-    f"Requests submitted {date(k['period_start'])} – {date(k['period_end'])}. Sessions held "
-    f"{date(P['usage_start'])} – {date(k['period_end'])} ({P['weeks']} weeks). Sections 3, 7 and 8 "
-    f"are not filtered."
+    f"Showing requests submitted between {date(k['period_start'])} and {date(k['period_end'])}, and "
+    f"sessions held between {date(P['usage_start'])} and {date(k['period_end'])} ({P['weeks']} weeks). "
+    f"The demand chart, the availability animation and sections 8 and 9 always cover the full history."
 )
 small = [w for w, s in P["windows"].iterrows() if s["n"] < SMALL_N]
 
@@ -202,6 +206,14 @@ public_n = int(k["public_approved"])
 displaced = get(P["outcomes"], "Bumped", "sessions")
 lead_d, wait_d, length_d = d.loc[1], d.loc[2], d.loc[4]
 busiest, quietest = P["occupancy"].idxmax(), P["occupancy"].idxmin()
+over = "the whole period" if period == PERIODS[0] else f"the {period.lower()}"
+
+
+WORDS = {2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten"}
+
+
+def joined(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 # 1 ─────────────────────────────────────────────────────────────────────────
 st.header("1. Summary")
@@ -233,15 +245,19 @@ st.dataframe(
     hide_index=True,
     width="stretch",
 )
-st.caption("Request-level rows cover public requests only. Session length covers approved sessions held in the period.")
+st.caption(
+    "Lead time, wait and notice cover requests made through the site; session length covers the "
+    "approved sessions held in the period."
+)
 
 # 2 ─────────────────────────────────────────────────────────────────────────
 st.header("2. Data and definitions")
 st.markdown(
-    "Two tables feed this report. `bookings` holds one row per session (start, end, status "
-    "`pending` / `approved` / `rejected`, `created_at`, `updated_at`, `group_id`). "
-    "`booking_groups` holds one row per multi-date request (`kind`: `custom` or `pattern`). "
-    "All figures were aggregated in SQL before export."
+    "The report draws on two tables. `bookings` has one row per session, with its start and end, "
+    "its status (`pending`, `approved` or `rejected`) and when it was created and last updated. "
+    "`booking_groups` links the sessions of a multi-date request and records whether the dates were "
+    "hand-picked (`custom`) or a weekly repeat (`pattern`). Everything was aggregated in SQL before "
+    "export, so no individual booking leaves the database."
 )
 st.markdown(
     md_table(
@@ -310,24 +326,24 @@ show(
     320,
 )
 st.caption(
-    "All weeks, whatever the period filter; the shaded band marks the selected period. "
-    "Grey: current week, incomplete and excluded from means."
+    "The chart always shows every week, with the selected period shaded. The grey bar is the current "
+    "week, which is still in progress and left out of the averages."
 )
 recent4 = complete.tail(4)["requests"].mean()
 july = complete.loc[complete["week_start"].dt.month == 7, "requests"].mean()
 peak = complete.loc[complete["requests"].idxmax()]
 first_session = ALL["usage_start"]
+total_requests = int(weekly["requests"].sum())
 st.markdown(
-    f"""
-- Mean weekly requests: {num(july)} in July, {num(recent4)} over the last 4 complete weeks
-  ({recent4 / july:.1f}×).
-- Highest week: {date(peak['week_start'])}, {int(peak['requests'])} requests.
-- Regular use starts in the week of {date(first_session)}: every approved session falls on or after
-  it. The {int(dq.loc[8, 'affected'])} sessions scheduled before then were all displaced, so
-  part of the rise since July is ramp-up after launch.
-- Admin-entered: {int(weekly['likely_admin_entered'].sum())} of {int(weekly['requests'].sum())} requests.
-  Included in demand, excluded from wait and lead-time figures.
-"""
+    f"July averaged {num(july)} requests a week; the last four complete weeks averaged "
+    f"{num(recent4)}, about {recent4 / july:.1f} times as many. The busiest week so far was the week of "
+    f"{date(peak['week_start'])}, with {int(peak['requests'])} requests. Part of this growth is the room "
+    f"settling in after launch: every approved session falls on or after the week of "
+    f"{date(first_session)}, and the {int(dq.loc[8, 'affected'])} sessions scheduled before then were "
+    f"all later displaced.\n\n"
+    f"Of the {total_requests} requests, {int(weekly['likely_admin_entered'].sum())} were entered "
+    f"directly by admins rather than through the site. They count towards demand here but are left out "
+    f"of the wait and lead-time figures, which only apply to requests that went through the approval queue."
 )
 
 # 4 ─────────────────────────────────────────────────────────────────────────
@@ -359,7 +375,7 @@ fig = go.Figure(
 fig.update_yaxes(autorange="reversed", showgrid=False)
 fig.update_xaxes(side="top", showgrid=False)
 show(fig, z.round(1).reset_index().rename(columns={"hour": "Hour"}), 620)
-st.caption("Blank: never in use in the period. A slot counts when a session occupies any part of it.")
+st.caption("Blank squares were never in use in the period. A slot counts as in use when a session occupies any part of it.")
 
 figure(f"Figure 3. Evening occupancy by weekday, {period.lower()}")
 occ = P["occupancy"]
@@ -393,25 +409,188 @@ show(
 )
 by_hour = grid.sum(axis=1)
 unused = by_hour[by_hour == 0].index.tolist()
-contiguous = bool(unused) and unused == list(range(unused[0], unused[-1] + 1))
-unused_label = f"{unused[0]:02d}:00–{unused[-1]:02d}:59" if contiguous else ", ".join(f"{h:02d}:00" for h in unused) or "no hour"
-peak_day, peak_hour = grid.stack().idxmax()[::-1]
+if not unused:
+    unused_text = ""
+elif unused == list(range(unused[0], unused[-1] + 1)):
+    unused_text = f", and no slot between {unused[0]:02d}:00 and {unused[-1]:02d}:59 was used on any day"
+else:
+    unused_text = f", and no slot at {joined([f'{h:02d}:00' for h in unused])} was used on any day"
+flat_use = grid.stack()
+peak_slots = [f"{DAY[d]} {h:02d}:00" for (h, d), v in flat_use.items() if v == flat_use.max()]
+in_use = f"in use in {int(flat_use.max())} of {P['weeks']} weeks"
+if len(peak_slots) == 1:
+    peak_text = f"The single busiest slot was {peak_slots[0]}, {in_use}."
+elif len(peak_slots) <= 3:
+    peak_text = f"The busiest slots were {joined(peak_slots)}, each {in_use}."
+else:
+    peak_text = f"No single slot stood out: {WORDS.get(len(peak_slots), str(len(peak_slots))).lower()} slots tied as the busiest, each {in_use}."
+if length_d["p25"] == length_d["p75"]:
+    spread = f"at least half of them ran exactly {num(length_d['p25'])} hours"
+else:
+    spread = f"the middle half ran between {num(length_d['p25'])} and {num(length_d['p75'])} hours"
 st.markdown(
-    f"""
-- {num(P['evening_share'])}% of hour slots in use fall in 19:00–24:00. Busiest slot:
-  {DAY[peak_day]} {peak_hour:02d}:00, in use {int(grid.loc[peak_hour, peak_day])} of {P['weeks']} weeks.
-- No slot in use on any day in {unused_label}.
-- Evening occupancy: {num(P['occupancy_overall'])}% overall, highest on {DAY[busiest]}
-  ({num(occ[busiest])}%), lowest on {DAY[quietest]} ({num(occ[quietest])}%).
-- Session length: median {num(length_d['median'])} h, IQR {num(length_d['p25'])}–{num(length_d['p75'])} h,
-  max {num(length_d['max'])} h.
-"""
+    f"Most use falls in the evening: {num(P['evening_share'])}% of the hour slots in use were between "
+    f"7pm and midnight{unused_text}. {peak_text}\n\n"
+    f"Across the week, {num(P['occupancy_overall'])}% of evening slots were in use. {DAY[busiest]} "
+    f"evenings were the fullest at {num(occ[busiest])}%, and {DAY[quietest]} evenings the quietest at "
+    f"{num(occ[quietest])}%. Sessions had a median length of {num(length_d['median'])} hours; {spread}, "
+    f"and the longest ran {num(length_d['max'])} hours."
 )
 
 # 5 ─────────────────────────────────────────────────────────────────────────
-st.header("5. Booking behaviour")
+st.header("5. Room availability")
+# Rolling 4-week windows smooth a single week's 5 evening slots per day into a readable
+# share; each frame is one window, ending on a Sunday.
+WINDOW = 4
+used = evening_weeks.pivot(index="week_start", columns="weekday_name", values="evening_slots_in_use")[DAYS]
+used_roll = used.rolling(WINDOW).sum().dropna()
+free_roll = 100 - 100 * used_roll / (WINDOW * 5)
+labels = [date(w + pd.Timedelta(days=6)) for w in free_roll.index]
+
+
+def availability_bars(row: pd.Series) -> go.Bar:
+    low = row.min()
+    return go.Bar(
+        x=DAYS,
+        y=row.values,
+        marker=dict(color=[ACCENT if v == low else MUTED for v in row.values], cornerradius=4),
+        text=[f"{v:.0f}%" if v == low else "" for v in row.values],
+        textposition="outside",
+        cliponaxis=False,
+        hovertemplate="%{x}: %{y:.0f}% of evening slots free<extra></extra>",
+    )
+
+
+figure("Figure 5. Share of evening slots free by weekday, four weeks at a time")
+fig = go.Figure(
+    data=[availability_bars(free_roll.iloc[-1])],
+    frames=[go.Frame(data=[availability_bars(row)], name=lbl) for lbl, (_, row) in zip(labels, free_roll.iterrows(), strict=True)],
+)
+step = dict(frame=dict(duration=700, redraw=True), transition=dict(duration=450, easing="cubic-in-out"), mode="immediate")
+fig.update_layout(
+    showlegend=False,
+    uniformtext=dict(mode="show", minsize=12),
+    # Opens on the latest window and never autoplays, so it reads correctly as a still.
+    updatemenus=[
+        dict(
+            type="buttons",
+            direction="left",
+            showactive=False,
+            x=0,
+            y=1.02,
+            xanchor="left",
+            yanchor="bottom",
+            bgcolor=BG,
+            bordercolor=MUTED,
+            font=dict(family=FONT, color=TEXT, size=13),
+            buttons=[
+                dict(label="▶  Play", method="animate", args=[None, dict(step, fromcurrent=False)]),
+                dict(label="❚❚  Pause", method="animate", args=[[None], dict(frame=dict(duration=0, redraw=False), transition=dict(duration=0), mode="immediate")]),
+            ],
+        )
+    ],
+    sliders=[
+        dict(
+            active=len(labels) - 1,
+            x=0,
+            len=1,
+            y=-0.06,
+            yanchor="top",
+            pad=dict(t=8, b=0),
+            ticklen=0,
+            bgcolor=MUTED,
+            activebgcolor=ACCENT,
+            bordercolor=MUTED,
+            font=dict(color="rgba(0,0,0,0)"),  # one tick label per week would crowd a phone
+            currentvalue=dict(prefix="Four weeks to ", font=dict(family=FONT, color=TEXT, size=13), xanchor="left"),
+            steps=[
+                dict(method="animate", label=lbl, args=[[lbl], dict(mode="immediate", frame=dict(duration=300, redraw=True), transition=dict(duration=300))])
+                for lbl in labels
+            ],
+        )
+    ],
+)
+fig.update_xaxes(showgrid=False)
+fig.update_yaxes(range=[0, 105], ticksuffix="%")
+show(
+    fig,
+    free_roll.round(1).assign(window_end=labels).reset_index(drop=True)[["window_end", *DAYS]].rename(columns={"window_end": "Four weeks to"}),
+    420,
+    top=56,
+    bottom=96,
+)
+st.caption(
+    "Each bar covers four weeks, so one unusually busy or quiet week does not swing it. The dark bar marks "
+    "the day with the least room. The chart opens on the latest four weeks; press Play to step through the "
+    "whole history, whatever the period filter."
+)
+
+first_free = 100 - 100 * used_roll.iloc[0].sum() / (WINDOW * 35)
+last_free = 100 - 100 * used_roll.iloc[-1].sum() / (WINDOW * 35)
+trend = "had fallen to" if last_free < first_free else "had risen to" if last_free > first_free else "was unchanged at"
+last_row = free_roll.iloc[-1]
+tightest = [DAY[d] for d, v in last_row.items() if v == last_row.min()]
+st.markdown(
+    f"In the four weeks to {labels[0]}, {first_free:.0f}% of evening slots were free; by the four weeks to "
+    f"{labels[-1]}, that {trend} {last_free:.0f}%. In the latest window, {joined(tightest)} "
+    f"{'had' if len(tightest) == 1 else 'shared'} the least room, with {last_row.min():.0f}% of evening slots free."
+)
+
+free_weeks = P["weeks"] - grid  # weeks each hour slot was free in the selected period
+evening_free = free_weeks.loc[19:23]
+
+
+def hours_at(col: pd.Series, value: int) -> str:
+    """Every hour tied at `value`, so a tie is never reported as a single winner."""
+    hits = [f"{h:02d}:00" for h, v in col.items() if v == value]
+    return "every hour" if len(hits) == len(col) else ", ".join(hits)
+
+
+flat = evening_free.stack()
+hardest = [f"{DAY[d]} {h:02d}:00" for (h, d), v in flat.items() if v == flat.min()]
+day_free = 100 * evening_free.sum() / (P["weeks"] * 5)
+easiest = [DAY[d] for d, v in day_free.items() if v == day_free.max()]
+always = int((flat == P["weeks"]).sum())
+one = len(hardest) == 1
+hard_free = (
+    f"{'which was' if one else 'which were'} taken every week"
+    if flat.min() == 0
+    else f"free in only {int(flat.min())} of {P['weeks']} weeks"
+)
+st.markdown(
+    f"Over {over}"
+    + (f" ({P['weeks']} weeks)" if period == PERIODS[0] else "")
+    + f", the hardest evening {'slot' if one else 'slots'} to get {'was' if one else 'were'} "
+    f"{joined(hardest)}, {hard_free}. {joined(easiest)} had the most room, "
+    f"{'with' if len(easiest) == 1 else 'each with'} {day_free.max():.0f}% of evening slots free"
+    + (
+        f", and {always} of the 35 evening slots {'was' if always == 1 else 'were'} free every week."
+        if always
+        else ", though no evening slot was free every week."
+    )
+)
+if period == PERIODS[0]:
+    st.caption("The whole period includes the quieter early weeks; Last 8 weeks gives the current picture.")
+with st.expander(f"Evening availability by day, {period.lower()}"):
+    st.markdown(
+        md_table(
+            [
+                [
+                    DAY[d],
+                    f"{100 * evening_free[d].sum() / (P['weeks'] * 5):.0f}%",
+                    f"{hours_at(evening_free[d], evening_free[d].min())} (free {int(evening_free[d].min())} of {P['weeks']})",
+                    f"{hours_at(evening_free[d], evening_free[d].max())} (free {int(evening_free[d].max())} of {P['weeks']})",
+                ]
+                for d in DAYS
+            ],
+            ["Day", "Evening slots free", "Hardest slot", "Easiest slot"],
+        )
+    )
+
+# 6 ─────────────────────────────────────────────────────────────────────────
+st.header("6. Booking behaviour")
 lead = P["lead"]
-figure(f"Figure 5. Lead time, public requests, {period.lower()} (n = {int(lead_d['n'])})")
+figure(f"Figure 6. Lead time, public requests, {period.lower()} (n = {int(lead_d['n'])})")
 show(
     single_series_bars(lead["bin"], lead["requests"], "%{y}: %{x} requests", horizontal=True),
     lead[["bin", "requests"]].rename(columns={"bin": "Lead time", "requests": "Requests"}),
@@ -426,24 +605,28 @@ st.markdown(
         ["Type", "Requests", "Share", "Sessions"],
     )
 )
-st.caption("Custom: several hand-picked dates. Pattern: a weekly repeat.")
+st.caption("Custom requests cover several hand-picked dates; pattern requests repeat weekly.")
 under_day = int(lead.loc[lead["bin_order"] == 1, "requests"].sum())
 multi = types.drop(index="one-off", errors="ignore")
+multi_n = int(multi["requests"].sum())
+multi_text = (
+    f"Most requests are for a single session; only {multi_n} of {approved_n} approved requests "
+    f"({pct(multi_n, approved_n)}) covered several dates, adding up to {int(multi['sessions'].sum())} sessions."
+    if multi_n
+    else "Every approved request in this period was for a single session."
+)
 st.markdown(
-    f"""
-- Lead time: median {num(lead_d['median'])} days, IQR {num(lead_d['p25'])}–{num(lead_d['p75'])} days,
-  90th percentile {num(lead_d['p90'])} days.
-- {under_day} of {int(lead_d['n'])} public requests ({pct(under_day, lead_d['n'])}) were submitted less
-  than a day before the first session.
-- Multi-date requests: {int(multi['requests'].sum())} of {approved_n} ({pct(multi['requests'].sum(), approved_n)}),
-  covering {int(multi['sessions'].sum())} sessions.
-"""
+    f"The median request came {num(lead_d['median'])} days before its first session. Half came between "
+    f"{num(lead_d['p25'])} and {num(lead_d['p75'])} days ahead, and only one in ten came more than "
+    f"{num(lead_d['p90'])} days ahead. Of the {int(lead_d['n'])} requests, {under_day} "
+    f"({pct(under_day, lead_d['n'])}) arrived less than a day before the session they were for.\n\n"
+    + multi_text
 )
 
-# 6 ─────────────────────────────────────────────────────────────────────────
-st.header("6. Approval process")
+# 7 ─────────────────────────────────────────────────────────────────────────
+st.header("7. Approval process")
 windows, wait = P["windows"], P["wait"]
-figure(f"Figure 6. Estimated approval wait by submission window, {period.lower()} (n = {public_n})")
+figure(f"Figure 7. Estimated approval wait by submission window, {period.lower()} (n = {public_n})")
 order = windows.index.tolist()
 fig = go.Figure()
 bins = wait[["bin_order", "wait_bin"]].drop_duplicates().sort_values("bin_order")
@@ -487,25 +670,44 @@ st.markdown(
     )
 )
 if small:
-    st.caption(f"Fewer than {SMALL_N} requests in: {', '.join(small)}. Treat those shares and medians as indicative.")
+    names = joined([w.lower() for w in small])
+    st.caption(
+        f"Fewer than {SMALL_N} requests fall in the {names} {'window' if len(small) == 1 else 'windows'}, "
+        f"so treat {'its' if len(small) == 1 else 'their'} figures as indicative."
+    )
 slowest = windows["median"].idxmax()
+fastest = windows["median"].idxmin()
+SENT = {
+    "Weekday daytime": "requests sent during the weekday daytime",
+    "Weekday late night": "requests sent late on weeknights",
+    "Weekend": "requests sent at the weekend",
+}
+after = int(k["approved_after_start"])
+after_text = (
+    f"\n\nIn {after} {'case' if after == 1 else 'cases'}, the estimated approval time came after the "
+    f"first session had already started; section 8 covers why that can happen."
+    if after
+    else ""
+)
 st.markdown(
-    f"""
-- Approval wait: median {num(wait_d['median'])} h, p75 {num(wait_d['p75'])} h, p90 {num(wait_d['p90'])} h,
-  max {num(wait_d['max'])} h.
-- Highest median wait by window: {slowest.lower()} ({num(windows.loc[slowest, 'median'])} h,
-  n = {int(windows.loc[slowest, 'n'])}).
-- Approved less than 24 h before the first session: {int(k['under_24h'])} of {public_n}
-  ({pct(k['under_24h'], public_n)}). {int(k['under_24h'] - k['avoidable_late'])} of those were submitted
-  less than 48 h ahead.
-- Restricted to requests submitted at least 48 h ahead: {int(k['avoidable_late'])} of
-  {int(k['booked_48h_ahead'])} ({pct(k['avoidable_late'], k['booked_48h_ahead'])}) still received under 24 h notice.
-- Requests with an approval time after the first session started: {int(k['approved_after_start'])} (section 7).
-"""
+    f"The median wait was {num(wait_d['median'])} hours and three in four requests were approved within "
+    f"{num(wait_d['p75'])} hours, but one in ten waited {num(wait_d['p90'])} hours or more, and the "
+    f"longest took {num(wait_d['max'])} hours. How long a request waited depended on when it was sent: "
+    f"{SENT[slowest]} had the longest median wait at {num(windows.loc[slowest, 'median'])} hours "
+    f"(n = {int(windows.loc[slowest, 'n'])}), against {num(windows.loc[fastest, 'median'])} hours for "
+    f"{SENT[fastest]}.\n\n"
+    f"Long waits matter most when the session is close. Of {public_n} requests, {int(k['under_24h'])} "
+    f"({pct(k['under_24h'], public_n)}) were approved less than a day before their first session, but "
+    f"{int(k['under_24h'] - k['avoidable_late'])} of those had been submitted less than two days ahead, "
+    f"which left little room for a faster answer. Among requests submitted at least two days ahead, "
+    f"{int(k['avoidable_late'])} of {int(k['booked_48h_ahead'])} "
+    f"({pct(k['avoidable_late'], k['booked_48h_ahead'])}) still got under a day's notice; these are the "
+    f"cases a faster process could prevent."
+    + after_text
 )
 
-# 7 ─────────────────────────────────────────────────────────────────────────
-st.header("7. Data quality and instrumentation")
+# 8 ─────────────────────────────────────────────────────────────────────────
+st.header("8. Data quality and instrumentation")
 figure("Table 5. Data-quality checks, all records")
 impact = {
     1: ("Excluded from wait and lead-time metrics; identified by a heuristic.", "Exact from 28 Oct (event log)"),
@@ -514,7 +716,11 @@ impact = {
     4: ("Weight the heatmap; may include entry errors.", "Unverified"),
     5: ("22:00–06:00 sessions in July; possibly AM/PM entry errors.", "Unverified"),
     6: ("Approving an overlapping request replaces the earlier approval.", "Logged as `bumped` from 28 Oct"),
-    7: ("None pending at snapshot time.", "–"),
+    7: (
+        "None pending at snapshot time." if dq.loc[7, "affected"] == 0
+        else "Awaiting a decision at snapshot time; not part of any period figure.",
+        "–",
+    ),
     8: ("Every displacement predates regular use; none since.", "Historical"),
 }
 st.markdown(
@@ -525,6 +731,11 @@ st.markdown(
         ],
         ["Check", "Affected", "Impact", "Status"],
     )
+)
+
+st.caption(
+    "These checks count every record up to the snapshot, including the current, unfinished week, so a count "
+    "can differ slightly from the period figures above; admin-entered requests are one example."
 )
 
 figure("Table 6. Gaps in the source data, and instrumentation added 28 Oct 2026")
@@ -540,13 +751,13 @@ st.markdown(
     )
 )
 st.caption(
-    f"Neither new table holds booking ids, names, titles, notes or IP addresses. "
-    f"Exact figures from them are scheduled for the next release ({NEXT_RELEASE})."
+    f"Neither new table stores booking ids, names, titles, notes or IP addresses. The next release "
+    f"({NEXT_RELEASE}) will use them for exact figures."
 )
 
-# 8 ─────────────────────────────────────────────────────────────────────────
-st.header("8. Findings and actions")
-st.caption("Evidence uses all-time figures, plus the last 8 weeks where noted.")
+# 9 ─────────────────────────────────────────────────────────────────────────
+st.header("9. Findings and actions")
+st.caption("The evidence below uses all-time figures, and the last 8 weeks where stated.")
 ka, ra = ALL["k"], for_period("Last 8 weeks")
 slow_all = ALL["windows"]["median"].idxmax()
 busy8 = ra["occupancy"].idxmax()
@@ -569,9 +780,10 @@ st.markdown(
             ],
             [
                 "3",
-                f"Demand has doubled; {DAY[busy8]} evenings are the most occupied.",
+                f"Demand has roughly doubled, partly as post-launch ramp-up; {DAY[busy8]} evenings are the most occupied.",
                 f"{recent4 / july:.1f}× July; last 8 weeks: {DAY[busy8]} {num(ra['occupancy'][busy8])}% vs "
-                f"{num(ra['occupancy_overall'])}% all evenings; 0 displaced sessions since regular use began",
+                f"{num(ra['occupancy_overall'])}% all evenings; latest four weeks: {joined(tightest)} at "
+                f"{100 - last_row.min():.0f}%; 0 displaced sessions since regular use began",
                 f"Monitor {DAY[busy8]} occupancy and displaced sessions monthly.",
                 "Evening occupancy, displaced sessions",
             ],
@@ -587,16 +799,16 @@ st.markdown(
     )
 )
 
-# 9 ─────────────────────────────────────────────────────────────────────────
-st.header("9. Method and reproducibility")
+# 10 ─────────────────────────────────────────────────────────────────────────
+st.header("10. Method and reproducibility")
 st.markdown(
-    f"""
-- Pipeline: Postgres → SQL in `sql/` → aggregate CSVs in `data/` → pandas and Plotly → Streamlit.
-- Each CSV comes from the SQL file with the same number. Most carry a `period` column; the period
-  filter selects rows and recomputes nothing from finer data.
-- Sample sizes are small (n = {int(ka['public_approved'])} public requests all time), so the report
-  uses medians and percentiles, not means. No significance testing.
-- The repo holds aggregate counts only: no names, booking titles, notes or row-level records.
-"""
+    f"The data runs from Postgres through the SQL files in `sql/` to the aggregate CSVs in `data/`, which "
+    f"pandas and Plotly turn into this Streamlit report. Each CSV comes from the SQL file with the same "
+    f"number, and most hold one block of rows per period, so the period filter only selects rows and "
+    f"never recalculates from finer data.\n\n"
+    f"With {int(ka['public_approved'])} public requests in total, the samples are small. The report "
+    f"therefore uses medians and percentiles rather than averages, and makes no claims of statistical "
+    f"significance. The repository holds aggregate counts only, with no names, booking titles, notes "
+    f"or individual records."
 )
 st.caption(f"Snapshot {SNAPSHOT}. Next release {NEXT_RELEASE}. [Source and SQL]({REPO_URL}).")
