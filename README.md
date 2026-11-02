@@ -7,15 +7,16 @@ quality. Includes an animated chart of how evening availability changed, four we
 - **Live report:** [band-room-report.streamlit.app](https://band-room-report.streamlit.app/)
 - **Booking system source:** [rtjw42/ehbr-public](https://github.com/rtjw42/ehbr-public)
 
+<!-- generated:start -->
 ## Scope
 
 | | |
 |---|---|
 | Source | Booking database (Postgres, Supabase): `bookings`, `booking_groups` |
-| Requests | Submitted 30 Apr – 25 Oct 2026 (the last complete week before the snapshot) |
-| Sessions | Held 29 Jun – 25 Oct 2026; every approved session falls in this range |
-| Snapshot | 1 Nov 2026, SGT |
-| Size | 105 requests; 67 public requests with a measurable wait; 99 approved sessions |
+| Requests | Submitted 30 Apr 2026 – 1 Nov 2026 (the last complete week before the snapshot) |
+| Sessions | Held 29 Jun 2026 – 1 Nov 2026; every approved session falls in this range |
+| Snapshot | 2 Nov 2026, SGT |
+| Size | 112 requests; 74 public requests with a measurable wait; 109 approved sessions |
 | Unit | Request (`coalesce(group_id, id)`) unless stated |
 | Periods | All time, last 8 weeks, last 4 weeks, selectable in the report |
 
@@ -23,17 +24,18 @@ quality. Includes an animated chart of how evening availability changed, four we
 
 | Metric | Value |
 |---|---|
-| Requests per week, last 4 complete weeks vs July | 10 vs 4.5 |
-| Hour slots in use falling in 19:00–24:00 | 69.2% |
-| Evening occupancy, last 8 weeks (Wednesday / all days) | 62.5% / 38.9% |
-| Hardest evening slots, last 8 weeks | Wednesday and Friday, 21:00 and 22:00: free 2 of 8 weeks |
+| Requests per week, last 4 complete weeks vs July | 9.5 vs 4.5 |
+| Hour slots in use falling in 19:00–24:00 | 69% |
+| Evening occupancy, last 8 weeks (fullest day, Friday / all days) | 60% / 41.8% |
+| Hardest evening slots, last 8 weeks | Friday 21:00 and Friday 22:00: free 1 of 8 weeks |
 | Lead time, median (IQR) | 2.9 days (1.2–4.2) |
-| Approval wait, median / p90 (estimated) | 1.7 h / 46.6 h |
-| Median wait by submission window: daytime / weekend / late night | 0.3 h / 3.3 h / 10.7 h |
-| Approved < 24 h before first session (estimated) | 32.8% (22 of 67) |
-| Same, among requests made ≥ 48 h ahead | 11.9% (5 of 42) |
+| Approval wait, median / p90 (estimated) | 1.9 h / 48.7 h |
+| Median wait by submission window: daytime / weekend / late night | 0.3 h / 2.4 h / 14.1 h |
+| Approved < 24 h before first session (estimated) | 33.8% (25 of 74) |
+| Same, among requests made ≥ 48 h ahead | 10.9% (5 of 46) |
 
 July was the first month of regular use, so part of the rise since then is ramp-up after launch.
+<!-- generated:end -->
 
 ## Repository layout
 
@@ -44,7 +46,8 @@ app.py      the report (Streamlit, pandas, Plotly); every figure is computed fro
 .streamlit/ theme matching the booking site's design tokens
 ```
 
-`NN_name.sql` produces `NN_name.csv`. Most datasets carry a `period` column with one block of
+`NN_name.sql` produces `NN_name.csv`. The Scope and Key results tables above are generated
+from `data/` by `readme_results.py`, so they always match the snapshot. Most datasets carry a `period` column with one block of
 rows per period; the report's period filter selects rows and recomputes nothing. Replacing
 `data/` with a new snapshot updates every table, chart and sentence.
 
