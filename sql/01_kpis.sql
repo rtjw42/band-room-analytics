@@ -2,8 +2,10 @@
 -- Periods (all time, last 8 weeks, last 4 weeks) end at the start of the current week, SGT,
 -- so every figure covers complete weeks only and no upcoming sessions. A request belongs
 -- to the period it was submitted in; a session to the period it took place in.
--- "Public" = requested through the site, then approved (updated_at > created_at on some row).
--- Approval time is ESTIMATED as max(updated_at); an edit after approval inflates it.
+-- "Public" = requested through the site, then approved: updated_at > created_at on every row.
+-- A row with updated_at = created_at was inserted already approved, so its request is admin-entered.
+-- Approval time is ESTIMATED as min(updated_at): one approval stamps every row of a request and a
+-- later edit moves only the rows it touches. An edit to a single-session request still inflates it.
 with bounds as (
   select date_trunc('week', now() at time zone 'Asia/Singapore') as cutoff  -- start of the current week, SGT
 ),
@@ -14,10 +16,10 @@ periods(period_order, period, start_local, end_local) as (
 ),
 req as (
   select min(created_at)                   as asked,
-         max(updated_at)                   as last_update,
+         min(updated_at)                   as approved_est,
          min(start_time)                   as first_session,
          bool_and(status = 'approved')     as approved,
-         bool_and(updated_at = created_at) as admin_entered,
+         bool_or(updated_at = created_at)  as admin_entered,
          bool_or(group_id is not null)     as grouped
   from public.bookings
   group by coalesce(group_id, id)
@@ -36,13 +38,13 @@ select period_order, period,
        count(*) filter (where approved and admin_entered)                                 as admin_entered,
        count(*) filter (where approved and grouped)                                       as grouped_approved,
        count(*) filter (where approved and not admin_entered
-                          and first_session - last_update < interval '24 hours')          as under_24h,
+                          and first_session - approved_est < interval '24 hours')          as under_24h,
        count(*) filter (where approved and not admin_entered
                           and first_session - asked >= interval '48 hours')               as booked_48h_ahead,
        count(*) filter (where approved and not admin_entered
                           and first_session - asked >= interval '48 hours'
-                          and first_session - last_update < interval '24 hours')          as avoidable_late,
-       count(*) filter (where approved and not admin_entered and first_session < last_update) as approved_after_start
+                          and first_session - approved_est < interval '24 hours')          as avoidable_late,
+       count(*) filter (where approved and not admin_entered and first_session < approved_est) as approved_after_start
 from rp
 group by period_order, period, start_local, end_local
 order by period_order;

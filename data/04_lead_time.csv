@@ -4,7 +4,7 @@ period_order,period,bin_order,bin,requests
 1,All time,3,2-3 days,13
 1,All time,4,3-7 days,21
 1,All time,5,1-2 weeks,7
-1,All time,6,2+ weeks,5
+1,All time,6,2+ weeks,4
 2,Last 8 weeks,1,Under 1 day,17
 2,Last 8 weeks,2,1-2 days,8
 2,Last 8 weeks,3,2-3 days,9

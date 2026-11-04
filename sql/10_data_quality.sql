@@ -2,10 +2,10 @@
 -- the number of affected requests or sessions; interpretation lives in the report.
 with req as (
   select min(created_at)                   as asked,
-         max(updated_at)                   as last_update,
+         min(updated_at)                   as approved_est,
          min(start_time)                   as first_session,
          bool_and(status = 'approved')     as approved,
-         bool_and(updated_at = created_at) as admin_entered
+         bool_or(updated_at = created_at)  as admin_entered
   from public.bookings
   group by coalesce(group_id, id)
 )
@@ -14,7 +14,7 @@ from (values
   (1, 'Requests entered by admins (inserted already approved)',
       (select count(*) from req where approved and admin_entered), 'requests'),
   (2, 'Requests approved after their first session started (estimated)',
-      (select count(*) from req where approved and not admin_entered and first_session < last_update), 'requests'),
+      (select count(*) from req where approved and not admin_entered and first_session < approved_est), 'requests'),
   (3, 'Sessions entered after they started (backfilled)',
       (select count(*) from public.bookings where created_at > start_time), 'sessions'),
   (4, 'Sessions longer than 6 hours',

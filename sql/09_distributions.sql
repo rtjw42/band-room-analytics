@@ -1,7 +1,7 @@
 -- Distribution summaries (quartiles, p90, range) for the duration metrics, per period.
 -- Request-level metrics cover public requests only; admin-entered requests are
 -- inserted already approved and have no meaningful wait or lead time. Approval time is
--- ESTIMATED as max(updated_at); an edit after approval inflates it.
+-- ESTIMATED as min(updated_at); an edit to a single-session request still inflates it.
 -- Periods (all time, last 8 weeks, last 4 weeks) end at the start of the current week, SGT,
 -- so every figure covers complete weeks only and no upcoming sessions. A request belongs
 -- to the period it was submitted in; a session to the period it took place in.
@@ -15,10 +15,10 @@ periods(period_order, period, start_local, end_local) as (
 ),
 req as (
   select min(created_at)                   as asked,
-         max(updated_at)                   as last_update,
+         min(updated_at)                   as approved_est,
          min(start_time)                   as first_session,
          bool_and(status = 'approved')     as approved,
-         bool_and(updated_at = created_at) as admin_entered,
+         bool_or(updated_at = created_at)  as admin_entered,
          bool_or(group_id is not null)     as grouped
   from public.bookings
   group by coalesce(group_id, id)
@@ -41,10 +41,10 @@ vals(period_order, period, sort, metric, unit, v) as (
          extract(epoch from first_session - asked) / 86400 from pub
   union all
   select period_order, period, 2, 'Approval wait (estimated)', 'hours',
-         extract(epoch from last_update - asked) / 3600 from pub
+         extract(epoch from approved_est - asked) / 3600 from pub
   union all
   select period_order, period, 3, 'Notice before first session (estimated)', 'hours',
-         extract(epoch from first_session - last_update) / 3600 from pub
+         extract(epoch from first_session - approved_est) / 3600 from pub
   union all
   select period_order, period, 4, 'Session length', 'hours', hours from ses
 )

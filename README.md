@@ -15,8 +15,8 @@ quality. Includes an animated chart of how evening availability changed, four we
 | Source | Booking database (Postgres, Supabase): `bookings`, `booking_groups` |
 | Requests | Submitted 30 Apr 2026 – 1 Nov 2026 (the last complete week before the snapshot) |
 | Sessions | Held 29 Jun 2026 – 1 Nov 2026; every approved session falls in this range |
-| Snapshot | 2 Nov 2026, SGT |
-| Size | 112 requests; 74 public requests with a measurable wait; 109 approved sessions |
+| Snapshot | 4 Nov 2026, SGT |
+| Size | 112 requests; 73 public requests with a measurable wait; 109 approved sessions |
 | Unit | Request (`coalesce(group_id, id)`) unless stated |
 | Periods | All time, last 8 weeks, last 4 weeks, selectable in the report |
 
@@ -29,10 +29,10 @@ quality. Includes an animated chart of how evening availability changed, four we
 | Evening occupancy, last 8 weeks (fullest day, Friday / all days) | 60% / 41.8% |
 | Hardest evening slots, last 8 weeks | Friday 21:00 and Friday 22:00: free 1 of 8 weeks |
 | Lead time, median (IQR) | 2.9 days (1.2–4.2) |
-| Approval wait, median / p90 (estimated) | 1.9 h / 48.7 h |
-| Median wait by submission window: daytime / weekend / late night | 0.3 h / 2.4 h / 14.1 h |
-| Approved < 24 h before first session (estimated) | 33.8% (25 of 74) |
-| Same, among requests made ≥ 48 h ahead | 10.9% (5 of 46) |
+| Approval wait, median / p90 (estimated) | 1.7 h / 46.5 h |
+| Median wait by submission window: daytime / weekend / late night | 0.3 h / 2.2 h / 14.1 h |
+| Approved < 24 h before first session (estimated) | 32.9% (24 of 73) |
+| Same, among requests made ≥ 48 h ahead | 11.1% (5 of 45) |
 
 July was the first month of regular use, so part of the rise since then is ramp-up after launch.
 <!-- generated:end -->
@@ -54,15 +54,17 @@ rows per period; the report's period filter selects rows and recomputes nothing.
 ## Data quality
 
 - **No approval timestamp** in the source table. Approval time is estimated as
-  `max(updated_at)`, which overstates waits for bookings edited after approval.
+  `min(updated_at)` across a request's rows, which overstates waits for single-session
+  requests edited after approval. The estimate was checked on 4 Nov 2026 against the exact
+  event log and the Telegram request pings; section 8 of the report has the outcome.
 - **Declined requests are hard-deleted**, so decline rate is not measurable from this snapshot.
-- **Admin-entered requests** are identified by `updated_at = created_at` and excluded from
-  wait and lead-time metrics.
+- **Admin-entered requests** are identified by `updated_at = created_at` on any row and
+  excluded from wait and lead-time metrics.
 - **All 7 displaced sessions predate regular use** (scheduled in May–June); none since.
 - Instrumentation added on 28 Oct 2026 (an event log of status changes and hourly booking-form
   step counts) removes the first two gaps from the next snapshot onward.
 
-The full list, with counts, is in section 7 of the report.
+The full list, with counts, is in section 8 of the report.
 
 ## Privacy
 

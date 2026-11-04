@@ -14,17 +14,17 @@ periods(period_order, period, start_local, end_local) as (
 ),
 req as (
   select min(created_at)                   as asked,
-         max(updated_at)                   as last_update,
+         min(updated_at)                   as approved_est,
          min(start_time)                   as first_session,
          bool_and(status = 'approved')     as approved,
-         bool_and(updated_at = created_at) as admin_entered,
+         bool_or(updated_at = created_at)  as admin_entered,
          bool_or(group_id is not null)     as grouped
   from public.bookings
   group by coalesce(group_id, id)
 ),
 w as (
   select p.period,
-         extract(epoch from r.last_update - r.asked) / 3600 as wait_hours,
+         extract(epoch from r.approved_est - r.asked) / 3600 as wait_hours,
          case
            when extract(isodow from t.a) in (6, 7)
              or (extract(isodow from t.a) = 5 and extract(hour from t.a) >= 18) then 'Weekend'

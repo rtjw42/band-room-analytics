@@ -5,7 +5,7 @@ with r as (
   select coalesce(group_id, id)                              as rid,
          min(created_at at time zone 'Asia/Singapore')       as asked,
          count(*)                                            as sessions,
-         bool_and(status = 'approved' and updated_at = created_at) as admin_entered
+         bool_and(status = 'approved') and bool_or(updated_at = created_at) as admin_entered
   from public.bookings
   group by 1
 ),

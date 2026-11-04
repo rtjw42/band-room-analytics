@@ -340,9 +340,9 @@ st.markdown(
         [
             ["Session", "One row in `bookings`."],
             ["Request", "One submission: `coalesce(group_id, id)`. A multi-date or weekly request counts once."],
-            ["Public request", "Approved request with `updated_at > created_at`: submitted, then approved by an admin."],
-            ["Admin-entered request", "Approved request with `updated_at = created_at`: inserted already approved. Heuristic: an admin-entered booking edited later counts as public."],
-            ["Approval time (est.)", "`max(updated_at)` across the request's rows. Overstates the wait when a booking is edited after approval."],
+            ["Public request", "Approved request with `updated_at > created_at` on every row: submitted, then approved by an admin."],
+            ["Admin-entered request", "Approved request with `updated_at = created_at` on any row: inserted already approved. Heuristic: a single-session admin entry edited later counts as public."],
+            ["Approval time (est.)", "`min(updated_at)` across the request's rows: one approval stamps every row, and a later edit moves only the rows it touches. Overstates the wait when a single-session request is edited after approval. Section 8 covers how this was checked."],
             ["Lead time", "First session start minus submission time."],
             ["Notice", "First session start minus approval time (est.)."],
             ["Avoidable late notice", "Notice < 24 h among requests with lead time ≥ 48 h."],
@@ -851,6 +851,30 @@ st.markdown(
 st.caption(
     f"Neither new table stores booking ids, names, titles, notes or IP addresses. The next release "
     f"({NEXT_RELEASE}) will use them for exact figures."
+)
+
+st.markdown(
+    "The approval estimate was checked on 4 Nov 2026 against the two other records available. The event "
+    "log has stored exact approval times since 28 Oct, and all four approvals logged by then matched the "
+    "estimate to the second. Telegram cannot date an approval, but the bot pings the admin chat only for "
+    "requests made through the site, and all five avoidable-late requests have a ping, which confirms they "
+    "were real requests and not admin entries edited later. Four of the five were also approved within "
+    "seconds of another booking, which is how clearing the queue looks in the data."
+)
+st.markdown(
+    "The check also corrected the method. The estimate used to be the latest update across a request's "
+    "rows, but rows approved together share one timestamp, and two multi-session requests had a row that "
+    "did not. One was an admin entry, edited 11 days later, that had been counted as an 11.4-day wait. The "
+    "other was a 4.5-hour wait recorded as 7.2 days because one session was edited a week after approval. "
+    "Taking the earliest update fixes both. On the 2 Nov snapshot, that moved the median wait from 1.9 to "
+    "1.7 hours, the 90th percentile from 48.7 to 46.5 hours, and avoidable late notice from 5 of 46 to "
+    "5 of 45."
+)
+st.markdown(
+    "One limit remains. A single-session request has no other rows to compare against, so an edit after "
+    "approval still passes for a long wait. Two of the 16 rows in multi-session requests were edited "
+    "later, so some single-session waits are probably overstated, mostly at the long end, and the median "
+    "is far less exposed. Exact figures from the event log remove this limit from the next release."
 )
 
 # 9 ─────────────────────────────────────────────────────────────────────────

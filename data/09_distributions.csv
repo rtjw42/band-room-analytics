@@ -1,13 +1,13 @@
 period_order,period,sort,metric,unit,n,p25,median,p75,p90,min,max
-1,All time,1,Lead time (request to first session),days,74,1.2,2.9,4.2,9.8,0.0,37.9
-1,All time,2,Approval wait (estimated),hours,74,0.1,1.9,17.4,48.7,0.0,496.5
-1,All time,3,Notice before first session (estimated),hours,74,9.7,51.2,81.6,180.7,-144.2,894.7
+1,All time,1,Lead time (request to first session),days,73,1.2,2.9,4.2,9.5,0.0,37.9
+1,All time,2,Approval wait (estimated),hours,73,0.1,1.7,15.4,46.5,0.0,496.5
+1,All time,3,Notice before first session (estimated),hours,73,13.8,48.6,80.5,183.3,-31.6,894.7
 1,All time,4,Session length,hours,109,2.0,2.0,3.0,4.0,0.5,8.0
 2,Last 8 weeks,1,Lead time (request to first session),days,52,0.8,2.1,3.8,5.7,0.0,37.9
-2,Last 8 weeks,2,Approval wait (estimated),hours,52,0.1,1.5,15.8,45.8,0.0,172.7
-2,Last 8 weeks,3,Notice before first session (estimated),hours,52,4.3,41.4,76.4,115.6,-144.2,894.7
+2,Last 8 weeks,2,Approval wait (estimated),hours,52,0.1,1.5,15.1,40.6,0.0,63.5
+2,Last 8 weeks,3,Notice before first session (estimated),hours,52,5.7,41.4,76.4,115.6,-31.6,894.7
 2,Last 8 weeks,4,Session length,hours,68,2.0,2.0,2.5,3.7,1.0,7.0
 3,Last 4 weeks,1,Lead time (request to first session),days,32,0.8,1.8,3.0,5.0,0.0,8.8
-3,Last 4 weeks,2,Approval wait (estimated),hours,32,0.2,2.3,22.6,46.6,0.0,172.7
-3,Last 4 weeks,3,Notice before first session (estimated),hours,32,3.8,34.0,54.3,95.0,-144.2,196.3
+3,Last 4 weeks,2,Approval wait (estimated),hours,32,0.2,2.3,15.8,46.0,0.0,63.5
+3,Last 4 weeks,3,Notice before first session (estimated),hours,32,4.3,34.0,54.3,95.0,-12.1,196.3
 3,Last 4 weeks,4,Session length,hours,43,2.0,2.0,2.5,4.0,1.0,7.0
