@@ -23,6 +23,7 @@ SNAPSHOT = pd.Timestamp((DATA / "SNAPSHOT").read_text().strip()).strftime("%-d %
 NEXT_RELEASE = "late Nov 2026"
 REPO_URL = "https://github.com/rtjw42/band-room-analytics"
 PERIODS = ["All time", "Last 8 weeks", "Last 4 weeks"]
+REAL_USE_START = pd.Timestamp("2026-07-01")  # earlier days were development and early user testing
 SMALL_N = 10
 
 st.set_page_config(page_title="Band room booking report", layout="centered")
@@ -76,6 +77,8 @@ dist_all = load("09_distributions")
 dq = load("10_data_quality").set_index("sort")
 evening_weeks = load("11_evening_by_week")
 evening_weeks["week_start"] = pd.to_datetime(evening_weeks["week_start"])
+# Requests sent in weeks that ended before real use began, for sessions held after it.
+june_requests = int(weekly.loc[weekly["week_start"] + pd.Timedelta(days=6) < REAL_USE_START, "requests"].sum())
 
 DAY = {"Mon": "Monday", "Tue": "Tuesday", "Wed": "Wednesday", "Thu": "Thursday", "Fri": "Friday", "Sat": "Saturday", "Sun": "Sunday"}
 DAYS = list(DAY)
@@ -87,11 +90,32 @@ def num(x: float) -> str:
 
 
 def pct(part: float, whole: float) -> str:
-    return f"{100 * part / whole:.1f}%" if whole else "–"
+    return f"{100 * part / whole:.0f}%" if whole else "–"
 
 
 def date(d) -> str:
     return pd.to_datetime(d).strftime("%-d %b")
+
+
+def clock(hour: int) -> str:
+    """19 -> '7pm', 0 -> '12am', 24 -> 'midnight'."""
+    if hour == 24:
+        return "midnight"
+    return f"{hour % 12 or 12}{'am' if hour < 12 else 'pm'}"
+
+
+def when(keys: list[tuple[int, str]]) -> str:
+    """(hour, day) pairs in words: 'Wednesday 9pm and 10pm', or 'Monday 7pm and Friday 9pm'."""
+    if len({d for _, d in keys}) == 1:
+        return f"{DAY[keys[0][1]]} {joined([clock(h) for h, _ in keys])}"
+    return joined([f"{DAY[d]} {clock(h)}" for h, d in keys])
+
+
+def duration(hours: float) -> str:
+    """Hours below two days, rounded days from there up."""
+    if hours >= 48:
+        return f"about {hours / 24:.0f} days"
+    return f"{num(hours)} {'hour' if num(hours) == '1' else 'hours'}"
 
 
 def md_table(rows: list[list], header: list[str]) -> str:
@@ -101,6 +125,15 @@ def md_table(rows: list[list], header: list[str]) -> str:
     return "\n".join(lines)
 
 
+def open_weeks(week_starts: pd.DatetimeIndex) -> pd.DataFrame:
+    """1 for each weekday on or after REAL_USE_START. The first week starts on Monday
+    29 Jun, so without this its two days before real use would count as free evenings."""
+    return pd.DataFrame(
+        {d: (week_starts + pd.Timedelta(days=i) >= REAL_USE_START).astype(int) for i, d in enumerate(DAYS)},
+        index=week_starts,
+    )
+
+
 def for_period(period: str) -> dict:
     """Everything the report needs for one period, sliced and derived."""
     k = kpis.loc[period]
@@ -108,7 +141,13 @@ def for_period(period: str) -> dict:
     weeks = int(heat["weeks"].iloc[0])
     grid = heat.pivot(index="hour", columns="weekday_name", values="booked_hours")[DAYS]
     evening = grid.loc[19:23]
-    occupancy = 100 * evening.sum() / (weeks * 5)  # per weekday
+    usage_start = pd.to_datetime(k["period_end"]) - pd.Timedelta(days=7 * weeks - 1)
+    days_open = open_weeks(pd.date_range(usage_start, periods=weeks, freq="7D")).sum()  # weeks per weekday
+    first_request = pd.to_datetime(k["period_start"])
+    rate_start = max(first_request, REAL_USE_START)
+    rate_weeks = ((pd.to_datetime(k["period_end"]) - rate_start).days + 1) / 7
+    rate_requests = k["requests"] - (june_requests if first_request < REAL_USE_START else 0)
+    occupancy = 100 * evening.sum() / (days_open * 5)  # per weekday
     wait = wait_all[wait_all["period"] == period]
     windows = pd.DataFrame(
         {
@@ -126,13 +165,16 @@ def for_period(period: str) -> dict:
     return {
         "k": k,
         "weeks": weeks,
-        "usage_start": pd.to_datetime(k["period_end"]) - pd.Timedelta(days=7 * weeks - 1),
-        "request_weeks": ((pd.to_datetime(k["period_end"]) - pd.to_datetime(k["period_start"])).days + 1) / 7,
+        "days_open": days_open,
+        "evening_hours": int(days_open.sum()) * 5,
+        "usage_start": usage_start,
+        "weekly_rate": f"{num(rate_requests / rate_weeks)} a week"
+        + (f" since {date(REAL_USE_START)}" if first_request < REAL_USE_START else ""),
         "grid": grid,
         "slots": int(grid.values.sum()),
         "evening_share": 100 * evening.values.sum() / grid.values.sum() if grid.values.sum() else 0.0,
         "occupancy": occupancy,
-        "occupancy_overall": 100 * evening.values.sum() / (weeks * 35),
+        "occupancy_overall": 100 * evening.values.sum() / (int(days_open.sum()) * 5),
         "lead": lead_all[lead_all["period"] == period],
         "wait": wait,
         "windows": windows,
@@ -209,14 +251,17 @@ july = complete.loc[complete["week_start"].dt.month == 7, "requests"].mean()
 WINDOW = 4
 used = evening_weeks.pivot(index="week_start", columns="weekday_name", values="evening_slots_in_use")[DAYS]
 used_roll = used.rolling(WINDOW).sum().dropna()
-free_roll = 100 - 100 * used_roll / (WINDOW * 5)
+open_roll = open_weeks(used.index).rolling(WINDOW).sum().dropna()
+free_roll = 100 - 100 * used_roll / (open_roll * 5)
 labels = [date(w + pd.Timedelta(days=6)) for w in free_roll.index]
-first_free = 100 - 100 * used_roll.iloc[0].sum() / (WINDOW * 35)
-last_free = 100 - 100 * used_roll.iloc[-1].sum() / (WINDOW * 35)
-trend = "had fallen to" if last_free < first_free else "had risen to" if last_free > first_free else "was unchanged at"
+first_free = 100 - 100 * used_roll.iloc[0].sum() / (open_roll.iloc[0].sum() * 5)
+last_free = 100 - 100 * used_roll.iloc[-1].sum() / (open_roll.iloc[-1].sum() * 5)
 last_row = free_roll.iloc[-1]
 tightest = [DAY[d] for d, v in last_row.items() if v == last_row.min()]
 roomiest = [DAY[d] for d, v in last_row.items() if v == last_row.max()]
+many_tight = len(tightest) > 1
+now_busiest = f"{joined(tightest)} {'are' if many_tight else 'is'} now the busiest {'evenings' if many_tight else 'evening'}"
+ratio = recent4 / july
 ka = ALL["k"]
 wait_summary = ALL["dist"].loc[2]
 
@@ -226,8 +271,8 @@ def avoidable_clause(late: int, ahead: int) -> str:
     if not ahead:
         return "no request was made two or more days ahead"
     if not late:
-        return f"every one of the {ahead} requests made at least two days ahead got at least a day's notice"
-    return f"{late} of {ahead} requests made at least two days ahead still got less than a day's notice"
+        return f"every one of the {ahead} requests made at least two days ahead was approved at least a day before the session"
+    return f"{late} of the {ahead} requests made at least two days ahead were approved less than a day before the session"
 
 
 def growth(ratio: float) -> str:
@@ -243,38 +288,31 @@ def growth(ratio: float) -> str:
 # ── Report ───────────────────────────────────────────────────────────────────
 st.title("Band room booking report")
 st.caption(
-    f"This report covers the band room's booking database as of {SNAPSHOT} (Singapore time). Each "
-    f"period ends with the last complete week, figures count requests unless stated otherwise, and "
-    f"approval times are estimates, as section 2 explains."
+    f"This report uses booking data up to {SNAPSHOT}, in Singapore time. Real use began on 1 Jul 2026, so "
+    f"sessions before then are left out. Approval times are estimates, and section 2 explains why."
 )
 
-free_change = (
-    "The share of evening slots left free fell"
-    if last_free < first_free
-    else "The share of evening slots left free went"
-)
-quick = "Approvals are usually quick, with a median wait of" if wait_summary["median"] < 6 else "The median approval wait is"
+free_then = "down from" if last_free < first_free else "up from" if last_free > first_free else "the same as"
 with st.container(border=True):
     st.markdown("**In brief**")
     st.markdown(
-        f"Since regular use began in July, demand for the band room has {growth(recent4 / july)}, from "
+        f"Real use of the band room began in July, and demand has {growth(ratio)} since then, from "
         f"{num(july)} to {num(recent4)} requests a week"
-        + (", though July was the summer break and the recent weeks fall in term time" if recent4 / july > 1.15 else "")
-        + f". Most of the room's use, {num(ALL['evening_share'])}%, falls between 7pm and midnight. {free_change} from {first_free:.0f}% in the four weeks to {labels[0]} "
-        f"to {last_free:.0f}% in the four weeks to {labels[-1]}, with {joined(tightest)} now the tightest. "
-        f"{quick} {num(wait_summary['median'])} hours, but one request in ten waits {num(wait_summary['p90'])} hours "
-        f"or more, and {avoidable_clause(int(ka['avoidable_late']), int(ka['booked_48h_ahead']))}. "
-        f"Section 10 sets out what these findings could feed into."
+        + (", though July was the summer break" if ratio > 1.15 else "")
+        + f". Most of the room's use falls between 7pm and midnight, and {last_free:.0f}% of those evening hours "
+        f"were free in the latest four weeks, {free_then} {first_free:.0f}% in July. {now_busiest}. "
+        f"Half of requests are approved within {duration(wait_summary['median'])}, but one in ten waits "
+        f"{duration(wait_summary['p90'])} or more, and {avoidable_clause(int(ka['avoidable_late']), int(ka['booked_48h_ahead']))}."
     )
-    st.caption("This summary uses all-time figures; the period filter below does not change it.")
+    st.caption("This summary always covers all time.")
 
 period = st.segmented_control("Period", PERIODS, default=PERIODS[0], key="period") or PERIODS[0]
 P = ALL if period == PERIODS[0] else for_period(period)
 k, d = P["k"], P["dist"]
 st.caption(
     f"Showing requests submitted between {date(k['period_start'])} and {date(k['period_end'])}, and "
-    f"sessions held between {date(P['usage_start'])} and {date(k['period_end'])} ({P['weeks']} weeks). "
-    f"The demand chart, the availability animation and sections 8 to 10 always cover the full history."
+    f"sessions held between {date(max(P['usage_start'], REAL_USE_START))} and {date(k['period_end'])} ({P['weeks']} weeks). "
+    f"The demand chart and sections 5, 8, 9 and 10 do not change with this filter."
 )
 small = [w for w, s in P["windows"].iterrows() if s["n"] < SMALL_N]
 
@@ -289,56 +327,58 @@ def stat(row: pd.Series | None, column: str, unit: str) -> str:
 busiest_days = [d for d, v in P["occupancy"].items() if v == P["occupancy"].max()]
 quietest_days = [d for d, v in P["occupancy"].items() if v == P["occupancy"].min()]
 busiest_names, quietest_names = [DAY[d] for d in busiest_days], [DAY[d] for d in quietest_days]
-over = "the whole period" if period == PERIODS[0] else f"the {period.lower()}"
 
 
 
 # 1 ─────────────────────────────────────────────────────────────────────────
 st.header("1. Summary")
 figure(f"Table 1. Key metrics, {period.lower()}")
+wait_at = lambda column: duration(wait_d[column]) if wait_d is not None else "–"
 st.markdown(
     md_table(
         [
-            ["Requests", int(k["requests"]), f"{num(k['requests'] / P['request_weeks'])} per week"],
-            ["Public requests, approved", public_n, "Requested through the site, then approved"],
-            ["Admin-entered requests", int(k["admin_entered"]), "Inserted already approved"],
-            ["Hour slots in use", P["slots"], f"{num(P['evening_share'])}% of them in 19:00–24:00"],
-            ["Evening occupancy", f"{num(P['occupancy_overall'])}%", f"Of {P['weeks'] * 35} evening hour slots"],
+            ["Requests", int(k["requests"]), P["weekly_rate"]],
+            ["Approved requests from the site", public_n, "Sent through the site, then approved"],
+            ["Requests entered by admins", int(k["admin_entered"]), "Added already approved"],
+            ["Hours in use", P["slots"], f"{P['evening_share']:.0f}% of them between 7pm and midnight"],
+            ["Evening hours in use", f"{P['occupancy_overall']:.0f}%", f"Of {P['evening_hours']} evening hours"],
             [
                 "Busiest evening",
                 joined(busiest_names) if P["occupancy"].max() > 0 else "–",
-                f"{num(P['occupancy'].max())}% of evening hour slots in use" + (" on each" if len(busiest_days) > 1 else "")
+                f"{P['occupancy'].max():.0f}% of evening hours in use" + (" on each" if len(busiest_days) > 1 else "")
                 if P["occupancy"].max() > 0
                 else "No evening use",
             ],
-            ["Median lead time", stat(lead_d, "median", "days"), f"n = {public_n}"],
-            ["Median approval wait (est.)", stat(wait_d, "median", "h"), f"n = {public_n}"],
-            ["90th percentile approval wait (est.)", stat(wait_d, "p90", "h"), f"n = {public_n}"],
-            ["Approved < 24 h before first session (est.)", pct(k["under_24h"], public_n), f"{int(k['under_24h'])} of {public_n}"],
-            ["Avoidable late notice (est.)", pct(k["avoidable_late"], k["booked_48h_ahead"]), f"{int(k['avoidable_late'])} of {int(k['booked_48h_ahead'])} booked ≥ 48 h ahead"],
+            ["Median days ahead", stat(lead_d, "median", "days"), f"{public_n} requests"],
+            ["Median approval wait (estimated)", wait_at("median"), f"{public_n} requests"],
+            ["90th percentile approval wait (estimated)", wait_at("p90"), f"{public_n} requests"],
+            ["Approved under a day before the session (estimated)", pct(k["under_24h"], public_n), f"{int(k['under_24h'])} of {public_n}"],
+            ["Made early, approved late (estimated)", pct(k["avoidable_late"], k["booked_48h_ahead"]), f"{int(k['avoidable_late'])} of {int(k['booked_48h_ahead'])} made at least 2 days ahead"],
         ],
-        ["Metric", "Value", "Base"],
+        ["Metric", "Value", "Detail"],
     )
 )
 
-figure(f"Table 2. Duration distributions, {period.lower()}")
-st.dataframe(
-    d[["metric", "unit", "n", "p25", "median", "p75", "p90", "min", "max"]].rename(
-        columns={"metric": "Metric", "unit": "Unit", "median": "Median", "min": "Min", "max": "Max"}
-    ),
-    hide_index=True,
-    width="stretch",
-)
-st.caption(
-    "Lead time, wait and notice cover requests made through the site; session length covers the "
-    "approved sessions held in the period."
-)
+with st.expander(f"Table 2. Full statistics, {period.lower()}"):
+    st.dataframe(
+        d[["metric", "unit", "n", "p25", "median", "p75", "p90", "min", "max"]].rename(
+            columns={"metric": "Metric", "unit": "Unit", "median": "Median", "min": "Min", "max": "Max"}
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    st.caption(
+        "Lead time, wait and notice cover requests made through the site, and session length covers the "
+        "approved sessions held in the period."
+    )
 
 # 2 ─────────────────────────────────────────────────────────────────────────
 st.header("2. Data and definitions")
 st.markdown(
-    "May and June 2026 were development, so bookings for sessions before 1 Jul are left out of every "
-    "figure. The report draws on two tables. `bookings` has one row per session, with its start and end, "
+    "Real use of the room began on 1 Jul 2026. Before that the site was in development, and the last few "
+    "weeks of June were early user testing, so bookings for sessions before 1 Jul are left out of every "
+    "figure. The first week starts on 1 Jul, so in All time, Monday and Tuesday have 17 weeks and the other "
+    "days have 18. The report draws on two tables. `bookings` has one row per session, with its start and end, "
     "its status (`pending`, `approved` or `rejected`) and when it was created and last updated. "
     "`booking_groups` links the sessions of a multi-date request and records whether the dates were "
     "hand-picked (`custom`) or a weekly repeat (`pattern`). The figures were aggregated in SQL before "
@@ -353,14 +393,14 @@ st.markdown(
             ["Request", "One submission: `coalesce(group_id, id)`. A multi-date or weekly request counts once."],
             ["Public request", "Approved request with `updated_at > created_at` on every row: submitted, then approved by an admin."],
             ["Admin-entered request", "Approved request with `updated_at = created_at` on any row: inserted already approved. Heuristic: a single-session admin entry edited later counts as public."],
-            ["Approval time (est.)", "`min(updated_at)` across the request's rows: one approval stamps every row, and a later edit moves only the rows it touches. Overstates the wait when a single-session request is edited after approval. Section 8 covers how this was checked."],
-            ["Lead time", "First session start minus submission time."],
-            ["Notice", "First session start minus approval time (est.)."],
-            ["Avoidable late notice", "Notice < 24 h among requests with lead time ≥ 48 h."],
+            ["Approval time (estimated)", "`min(updated_at)` across the request's rows: one approval stamps every row, and a later edit moves only the rows it touches. Overstates the wait when a single-session request is edited after approval. Section 8 covers how this was checked."],
+            ["Days ahead (lead time)", "First session start minus submission time."],
+            ["Notice", "First session start minus approval time (estimated)."],
+            ["Made early, approved late (avoidable late notice)", "Notice < 24 h among requests with lead time ≥ 48 h."],
             ["Period", "All time, last 8 weeks or last 4 weeks, ending on the last complete week. Requests fall in the period they were submitted; sessions in the period they were held. Upcoming sessions are excluded."],
-            ["Hour slot in use", "A weekday-hour slot that an approved session occupied at least partly. Two sessions sharing a slot count it once."],
-            ["Evening occupancy", "Evening (19:00–24:00) hour slots in use ÷ evening hour slots available in the period."],
-            ["Submission window", "Weekend: Fri 18:00 – Sun 23:59. Weekday late night: 23:00–07:00. Weekday daytime: the rest."],
+            ["Hour in use", "An hour of the week that an approved session covered at least partly. Two sessions sharing an hour count it once."],
+            ["Evening hours in use (evening occupancy)", "Evening (19:00–24:00) hours in use ÷ evening hours available in the period, counted from 1 Jul."],
+            ["When the request was sent (submission window)", "Weekend: Fri 18:00 – Sun 23:59. Weekday late night: 23:00–07:00. Weekday daytime: the rest."],
             ["Week", "Monday start, SGT."],
         ],
         ["Term", "Definition"],
@@ -369,7 +409,7 @@ st.markdown(
 
 # 3 ─────────────────────────────────────────────────────────────────────────
 st.header("3. Demand")
-figure(f"Figure 1. Requests per week by submission date (n = {int(weekly['requests'].sum())})")
+figure(f"Figure 1. Requests per week by date sent ({int(weekly['requests'].sum())} requests)")
 fig = go.Figure()
 if period != PERIODS[0]:
     fig.add_vrect(
@@ -395,6 +435,11 @@ fig.add_scatter(
     line=dict(color=REFERENCE, width=2),
     hovertemplate="4-week mean: %{y:.1f}<extra></extra>",
 )
+# A shape and an annotation, because add_vline cannot label a date axis.
+fig.add_shape(type="line", x0=REAL_USE_START, x1=REAL_USE_START, y0=0, y1=1, yref="paper", line=dict(color=TEXT, width=1, dash="dot"))
+fig.add_annotation(
+    x=REAL_USE_START, y=1, yref="paper", xanchor="left", yanchor="top", xshift=4, showarrow=False, text="Real use begins", font=dict(color=TEXT, size=12)
+)
 fig.update_layout(bargap=0.25, legend=dict(orientation="h", x=0, y=1.02, yanchor="bottom"))
 fig.update_xaxes(showgrid=False, dtick="M1", tickformat="%b")
 fig.update_yaxes(rangemode="tozero")
@@ -412,41 +457,47 @@ show(
     320,
 )
 st.caption(
-    "The chart always shows every week, with the selected period shaded. The June bars are requests made "
-    "ahead for July sessions. The grey bar is the current week, which is still in progress and left out "
-    "of the averages."
+    f"The chart always shows every week, with the selected period shaded. The {WORDS.get(june_requests, str(june_requests)).lower()} "
+    f"requests in June were made during early user testing for sessions held in July, so they count. The grey "
+    f"bar is the current week, which is still in progress and left out of the averages."
 )
 peak = complete.loc[complete["requests"].idxmax()]
 total_requests = int(weekly["requests"].sum())
 st.markdown(
-    f"July averaged {num(july)} requests a week and the last four complete weeks averaged "
-    f"{num(recent4)}, so demand has {growth(recent4 / july)}. The busiest week so far was the week of "
-    f"{date(peak['week_start'])}, with {int(peak['requests'])} requests. "
-    + ("Part of this growth is the room settling in after launch. " if recent4 / july > 1.15 else "")
-    + f"July also falls in the summer break and the recent weeks in term time, so the two are not like for "
-    f"like, and one semester cannot show how much of the rise will last.\n\n"
-    f"Counting the week in progress, {total_requests} requests have been made, and "
-    f"{int(weekly['likely_admin_entered'].sum())} of them were entered directly by admins rather than "
-    f"through the site. They count towards demand here but are left out "
-    f"of the wait and lead-time figures, which only apply to requests that went through the approval queue."
+    (
+        f"Requests rose from an average of {num(july)} a week in July to {num(recent4)} a week over the last four "
+        f"complete weeks"
+        if ratio > 1.15
+        else f"Requests averaged {num(july)} a week in July and {num(recent4)} a week over the last four complete weeks"
+    )
+    + f", and the busiest week was the week of {date(peak['week_start'])}, with {int(peak['requests'])} requests. "
+    + (
+        "Some of that rise is the room settling in after real use began and some is the start of term, so one "
+        "semester cannot show how much of it will last."
+        if ratio > 1.15
+        else "July falls in the summer break and the recent weeks in term time, so the two are not like for like."
+    )
+    + f"\n\nCounting the current week, there have been {total_requests} requests, and admins entered "
+    f"{int(weekly['likely_admin_entered'].sum())} of them directly. Those count towards demand but not towards "
+    f"waits or days ahead, because they never went through approval."
 )
 
 # 4 ─────────────────────────────────────────────────────────────────────────
 st.header("4. Room usage")
-view = st.segmented_control("Heatmap shows", ["Hours in use", "Share of weeks in use"], default="Hours in use", key="heat_view") or "Hours in use"
+view = st.segmented_control("Heatmap shows", ["Weeks in use", "% of weeks"], default="Weeks in use", key="heat_view") or "Weeks in use"
 grid = P["grid"]
-share = view == "Share of weeks in use"
-z = 100 * grid / P["weeks"] if share else grid
+share = view == "% of weeks"
+z = 100 * grid / P["days_open"] if share else grid
 figure(
-    f"Figure 2. {'Share of weeks each hour slot was in use' if share else 'Hour slots in use'} "
-    f"by weekday and hour, SGT, {period.lower()}" + (f" ({P['weeks']} weeks)" if period == PERIODS[0] else "")
+    f"Figure 2. {'Share of weeks each hour was in use' if share else 'How many weeks each hour was in use'}, "
+    f"{period.lower()}" + (f" ({P['weeks']} weeks)" if period == PERIODS[0] else "")
 )
 steps = len(HEAT) - 1
 fig = go.Figure(
     go.Heatmap(
         z=z.where(grid > 0).values,  # never-used slots stay blank
         x=DAYS,
-        y=[f"{h:02d}:00" for h in grid.index],
+        y=[clock(h) for h in grid.index],
         colorscale=[[i / steps, c] for i, c in enumerate(HEAT)],
         xgap=2,
         ygap=2,
@@ -459,17 +510,17 @@ fig = go.Figure(
 )
 fig.update_yaxes(autorange="reversed", showgrid=False)
 fig.update_xaxes(side="top", showgrid=False)
-show(fig, z.round(1).reset_index().rename(columns={"hour": "Hour"}), 620)
-st.caption("Blank squares were never in use in the period. A slot counts as in use when a session occupies any part of it.")
+show(fig, z.round().reset_index().assign(hour=lambda t: t["hour"].map(clock)).rename(columns={"hour": "Hour"}), 620)
+st.caption("Blank squares were never in use. An hour counts as in use if a session covers any part of it.")
 
-figure(f"Figure 3. Evening occupancy by weekday, {period.lower()}")
+figure(f"Figure 3. Share of evening hours in use, by weekday, {period.lower()}")
 occ = P["occupancy"]
 fig = single_series_bars(
     occ.index,
     occ.values,
-    "%{x}: %{y:.1f}% of evening hour slots in use",
+    "%{x}: %{y:.0f}% of evening hours in use",
     colors=[ACCENT if day in busiest_days else MUTED for day in occ.index],
-    labels=[f"{num(v)}%" if day in busiest_days + quietest_days else None for day, v in occ.items()],
+    labels=[f"{v:.0f}%" if day in busiest_days + quietest_days else None for day, v in occ.items()],
 )
 fig.update_yaxes(range=[0, 100], ticksuffix="%")
 show(
@@ -477,15 +528,15 @@ show(
     pd.DataFrame(
         {
             "Day": occ.index,
-            "Evening slots in use": grid.loc[19:23].sum().values,
-            "Evening slots available": P["weeks"] * 5,
-            "Occupancy (%)": occ.round(1).values,
+            "Evening hours in use": grid.loc[19:23].sum().values,
+            "Evening hours available": (P["days_open"] * 5).values,
+            "Share in use (%)": occ.round().values,
         }
     ),
     300,
 )
 
-figure(f"Figure 4. Session length, {period.lower()} (n = {int(P['sessions']['sessions'].sum())})")
+figure(f"Figure 4. Session length, {period.lower()} ({int(P['sessions']['sessions'].sum())} sessions)")
 ses = P["sessions"]
 show(
     single_series_bars(ses["bin"], ses["sessions"], "%{y}: %{x} sessions", horizontal=True),
@@ -497,46 +548,98 @@ unused = by_hour[by_hour == 0].index.tolist()
 if not unused:
     unused_text = ""
 elif unused == list(range(unused[0], unused[-1] + 1)):
-    unused_text = f", and no slot between {unused[0]:02d}:00 and {unused[-1]:02d}:59 was used on any day"
+    unused_text = f", and nothing was booked between {clock(unused[0])} and {clock(unused[-1] + 1)} on any day"
 else:
-    unused_text = f", and no slot at {joined([f'{h:02d}:00' for h in unused])} was used on any day"
-flat_use = grid.stack()
-peak_slots = [f"{DAY[d]} {h:02d}:00" for (h, d), v in flat_use.items() if v == flat_use.max()]
-in_use = f"in use in {int(flat_use.max())} of {P['weeks']} weeks"
-if len(peak_slots) == 1:
-    peak_text = f"The single busiest slot was {peak_slots[0]}, {in_use}."
-elif len(peak_slots) <= 3:
-    peak_text = f"The busiest slots were {joined(peak_slots)}, each {in_use}."
+    unused_text = f", and nothing was booked at {joined([clock(h) for h in unused])} on any day"
+use_share = (grid / P["days_open"]).stack()
+peak = list(use_share[use_share == use_share.max()].index)
+in_use = f"in use in {int(grid.loc[peak[0]])} of the {int(P['days_open'][peak[0][1]])} weeks"
+if len(peak) == 1:
+    peak_text = f"The busiest time was {when(peak)}, {in_use}."
+elif len(peak) <= 3:
+    peak_text = f"The busiest times were {when(peak)}, each {in_use}."
 else:
-    peak_text = f"No single slot stood out: {WORDS.get(len(peak_slots), str(len(peak_slots))).lower()} slots tied as the busiest, each {in_use}."
+    peak_text = f"No single time stood out, with {WORDS.get(len(peak), str(len(peak))).lower()} times tied as the busiest, each {in_use}."
 if not has_sessions:
     st.markdown("No sessions were held in this period.")
 else:
-    if length_d["p25"] == length_d["p75"]:
-        spread = f"at least half of them ran exactly {num(length_d['p25'])} hours"
-    else:
-        spread = f"the middle half ran between {num(length_d['p25'])} and {num(length_d['p75'])} hours"
     if occ.max() == occ.min():
-        fullest_text = f"Every evening was equally full at {num(occ.max())}%."
+        fullest_text = f"Every evening was equally full at {occ.max():.0f}%."
     else:
+        many_full = len(busiest_names) > 1
         fullest_text = (
-            f"{joined(busiest_names)} evenings were the fullest at {num(occ.max())}%, and "
-            f"{joined(quietest_names)} evenings the quietest at {num(occ.min())}%."
+            f"{joined(busiest_names)} {'were the fullest evenings' if many_full else 'was the fullest evening'} at "
+            f"{occ.max():.0f}% and {joined(quietest_names)} the quietest at {occ.min():.0f}%"
         )
-    if not set(busiest_names) & set(tightest):
-        fullest_text += (
-            f" In the latest four weeks, {joined(tightest)} {'was' if len(tightest) == 1 else 'were'} the fullest instead."
-        )
+        if set(busiest_names) & set(tightest):
+            fullest_text += "."
+        else:
+            fullest_text += (
+                f", though {joined(tightest)} {'were' if many_tight else 'was'} the fullest in the latest four weeks."
+            )
     st.markdown(
-        f"Most use falls in the evening, with {num(P['evening_share'])}% of the hour slots in use between "
-        f"7pm and midnight{unused_text}. {peak_text}\n\n"
-        f"Across the week, {num(P['occupancy_overall'])}% of evening slots were in use. {fullest_text} "
-        f"Sessions had a median length of {num(length_d['median'])} hours; {spread}, "
-        f"and the longest ran {num(length_d['max'])} hours."
+        f"Most of the room's use, {P['evening_share']:.0f}%, falls between 7pm and midnight{unused_text}. {peak_text}\n\n"
+        f"Across the week, {P['occupancy_overall']:.0f}% of evening hours were in use. {fullest_text} "
+        f"Half of sessions ran {duration(length_d['median'])} or less, and the longest ran {duration(length_d['max'])}."
     )
 
 # 5 ─────────────────────────────────────────────────────────────────────────
 st.header("5. Room availability")
+st.markdown("An evening hour, between 7pm and midnight, counts as free if nothing is booked during any part of it.")
+
+# This whole section ignores the period filter. The table answers "when is the room free
+# now?", and All time would hide the pressure behind the quiet early weeks.
+ra = for_period("Last 8 weeks")
+evening_free = (ra["days_open"] - ra["grid"]).loc[19:23]  # weeks each evening hour was free
+FREE_USUALLY, FREE_RARELY = 6, 2  # weeks out of the last 8
+
+
+def time_ranges(hours: list[int]) -> str:
+    """Evening hours as plain time ranges, so [19, 20, 22] reads '7–9pm, 10–11pm'."""
+    if not hours:
+        return "–"
+    if len(hours) == len(evening_free):
+        return "All evening"
+    runs: list[list[int]] = []
+    for h in hours:
+        if runs and runs[-1][1] == h:
+            runs[-1][1] = h + 1
+        else:
+            runs.append([h, h + 1])
+    return ", ".join(f"{clock(a)} to midnight" if b == 24 else f"{a - 12}–{clock(b)}" for a, b in runs)
+
+
+def free_times(day: str) -> list[str]:
+    free = evening_free[day]
+    groups = [free >= FREE_USUALLY, (free > FREE_RARELY) & (free < FREE_USUALLY), free <= FREE_RARELY]
+    return [day, *(time_ranges(free[g].index.tolist()) for g in groups)]
+
+
+figure("Table 3. When the room is free, last 8 weeks")
+st.markdown(md_table([free_times(day) for day in DAYS], ["Day", "Usually free", "Sometimes free", "Rarely free"]))
+st.caption(
+    f"Usually free means free in at least {FREE_USUALLY} of the {ra['weeks']} weeks, rarely free means "
+    f"{FREE_RARELY} or fewer, and sometimes free is anything in between."
+)
+
+free_share = (evening_free / ra["days_open"]).stack()
+hardest = list(free_share[free_share == free_share.min()].index)
+day_free = 100 * evening_free.sum() / (ra["days_open"] * 5)
+easiest = [DAY[day] for day, v in day_free.items() if v == day_free.max()]
+one, many_easy = len(hardest) == 1, len(easiest) > 1
+hard_free = "booked every week" if free_share.min() == 0 else f"free in only {int(evening_free.loc[hardest[0]])} of the {ra['weeks']} weeks"
+if len(hardest) > 4:
+    hardest_text = f"{len(hardest)} evening times tied as the hardest to book, each {hard_free}"
+else:
+    hardest_text = f"{when(hardest)} {'was the hardest time' if one else 'were the hardest times'} to book, {'' if one else 'each '}{hard_free}"
+if not ra["slots"]:
+    st.markdown("No evening hour was booked over the last 8 weeks.")
+else:
+    st.markdown(
+        f"Over the last 8 weeks, {hardest_text}, and {joined(easiest)} "
+        f"{'were the easiest evenings' if many_easy else 'was the easiest evening'}, with {day_free.max():.0f}% of "
+        f"{'their' if many_easy else 'its'} hours free."
+    )
 
 
 def availability_bars(row: pd.Series) -> go.Bar:
@@ -548,11 +651,11 @@ def availability_bars(row: pd.Series) -> go.Bar:
         text=[f"{v:.0f}%" if v == low else "" for v in row.values],
         textposition="outside",
         cliponaxis=False,
-        hovertemplate="%{x}: %{y:.0f}% of evening slots free<extra></extra>",
+        hovertemplate="%{x}: %{y:.0f}% of evening hours free<extra></extra>",
     )
 
 
-figure("Figure 5. Share of evening slots free by weekday, four weeks at a time")
+figure("Figure 5. Share of evening hours free, by weekday, four weeks at a time")
 fig = go.Figure(
     data=[availability_bars(free_roll.iloc[-1])],
     frames=[go.Frame(data=[availability_bars(row)], name=lbl) for lbl, (_, row) in zip(labels, free_roll.iterrows(), strict=True)],
@@ -605,95 +708,35 @@ fig.update_xaxes(showgrid=False)
 fig.update_yaxes(range=[0, 105], ticksuffix="%")
 show(
     fig,
-    free_roll.round(1).assign(window_end=labels).reset_index(drop=True)[["window_end", *DAYS]].rename(columns={"window_end": "Four weeks to"}),
+    free_roll.round().assign(window_end=labels).reset_index(drop=True)[["window_end", *DAYS]].rename(columns={"window_end": "Four weeks to"}),
     420,
     top=56,
     bottom=96,
 )
 st.caption(
-    "Each bar covers four weeks, so one unusually busy or quiet week does not swing it. The dark bar marks "
-    "the day with the least room. The chart opens on the latest four weeks; press Play to step through the "
-    "whole history, whatever the period filter."
+    "Each bar covers four weeks, so one unusual week does not swing it, and the dark bar marks the day with "
+    "the fewest free hours. Press Play to step through the whole history."
 )
 
+went, change = ("fell", "drop") if last_free < first_free else ("rose", "rise") if last_free > first_free else ("went", "change")
 st.markdown(
-    f"In the four weeks to {labels[0]}, {first_free:.0f}% of evening slots were free; by the four weeks to "
-    f"{labels[-1]}, that {trend} {last_free:.0f}%. In the latest window, {joined(tightest)} "
-    f"{'had' if len(tightest) == 1 else 'shared'} the least room, with {last_row.min():.0f}% of evening slots free. "
-    f"The first window falls in the summer break and the latest in term time, so part of the change is the time of year."
+    f"The share of free evening hours {went} from {first_free:.0f}% in the four weeks to {labels[0]} to "
+    f"{last_free:.0f}% in the four weeks to {labels[-1]}, and part of that {change} is the move from the summer "
+    f"break into term time. {now_busiest}, with {last_row.min():.0f}% of {'their' if many_tight else 'its'} hours free."
 )
-
-free_weeks = P["weeks"] - grid  # weeks each hour slot was free in the selected period
-evening_free = free_weeks.loc[19:23]
-
-
-def hours_at(col: pd.Series, value: int) -> str:
-    """Every hour tied at `value`, so a tie is never reported as a single winner."""
-    hits = [f"{h:02d}:00" for h, v in col.items() if v == value]
-    return "every hour" if len(hits) == len(col) else ", ".join(hits)
-
-
-flat = evening_free.stack()
-hardest = [f"{DAY[d]} {h:02d}:00" for (h, d), v in flat.items() if v == flat.min()]
-day_free = 100 * evening_free.sum() / (P["weeks"] * 5)
-easiest = [DAY[d] for d, v in day_free.items() if v == day_free.max()]
-always = int((flat == P["weeks"]).sum())
-one = len(hardest) == 1
-hard_free = (
-    f"{'which was' if one else 'which were'} taken every week"
-    if flat.min() == 0
-    else f"free in only {int(flat.min())} of {P['weeks']} weeks"
-)
-if len(hardest) > 4:
-    hardest_text = f"{len(hardest)} evening slots tied as the hardest to get, each {hard_free.removeprefix('which were ')}"
-else:
-    hardest_text = (
-        f"the hardest evening {'slot' if one else 'slots'} to get {'was' if one else 'were'} {joined(hardest)}, {hard_free}"
-    )
-if not has_sessions:
-    st.markdown(f"No evening slot was booked over {over}.")
-else:
-    st.markdown(
-        f"Over {over}"
-        + (f" ({P['weeks']} weeks)" if period == PERIODS[0] else "")
-        + f", {hardest_text}. {joined(easiest)} had the most room, "
-        f"{'with' if len(easiest) == 1 else 'each with'} {day_free.max():.0f}% of evening slots free"
-        + (
-            f", and {always} of the 35 evening slots {'was' if always == 1 else 'were'} free every week."
-            if always
-            else ", though no evening slot was free every week."
-        )
-    )
-if period == PERIODS[0]:
-    st.caption("The whole period includes the quieter early weeks; Last 8 weeks gives the current picture.")
-with st.expander(f"Evening availability by day, {period.lower()}"):
-    st.markdown(
-        md_table(
-            [
-                [
-                    DAY[d],
-                    f"{100 * evening_free[d].sum() / (P['weeks'] * 5):.0f}%",
-                    f"{hours_at(evening_free[d], evening_free[d].min())} (free {int(evening_free[d].min())} of {P['weeks']})",
-                    f"{hours_at(evening_free[d], evening_free[d].max())} (free {int(evening_free[d].max())} of {P['weeks']})",
-                ]
-                for d in DAYS
-            ],
-            ["Day", "Evening slots free", "Hardest slot", "Easiest slot"],
-        )
-    )
 
 # 6 ─────────────────────────────────────────────────────────────────────────
 st.header("6. Booking behaviour")
 lead = P["lead"]
-figure(f"Figure 6. Lead time, public requests, {period.lower()} (n = {public_n})")
+figure(f"Figure 6. Days ahead, requests from the site, {period.lower()} ({public_n} requests)")
 show(
     single_series_bars(lead["bin"], lead["requests"], "%{y}: %{x} requests", horizontal=True),
-    lead[["bin", "requests"]].rename(columns={"bin": "Lead time", "requests": "Requests"}),
+    lead[["bin", "requests"]].rename(columns={"bin": "Days ahead", "requests": "Requests"}),
     280,
 )
 types = P["types"]
 approved_n = int(types["requests"].sum())
-figure(f"Table 3. Request type, approved requests, {period.lower()}")
+figure(f"Table 4. Request type, approved requests, {period.lower()}")
 st.markdown(
     md_table(
         [[label.capitalize(), int(r["requests"]), pct(r["requests"], approved_n), int(r["sessions"])] for label, r in types.iterrows()],
@@ -701,15 +744,15 @@ st.markdown(
     )
 )
 st.caption(
-    "Custom requests cover several hand-picked dates; pattern requests repeat weekly. Sessions here include "
-    "any still to come, so they can add up to more than the sessions held in Figure 4."
+    "Custom requests cover hand-picked dates and pattern requests repeat weekly. This table includes "
+    "sessions still to come, so its total can be higher than Figure 4's."
 )
 under_day = int(lead.loc[lead["bin_order"] == 1, "requests"].sum())
 multi = types.drop(index="one-off", errors="ignore")
 multi_n = int(multi["requests"].sum())
 multi_text = (
-    f"Most requests are for a single session; only {multi_n} of {approved_n} approved requests "
-    f"({pct(multi_n, approved_n)}) covered several dates, adding up to {int(multi['sessions'].sum())} sessions."
+    f"Most requests are for a single session, and only {multi_n} of {approved_n} ({pct(multi_n, approved_n)}) "
+    f"covered several dates."
     if multi_n
     else "Every approved request in this period was for a single session."
     if approved_n
@@ -719,17 +762,16 @@ if not has_requests:
     st.markdown("No requests were made through the site in this period." + (f"\n\n{multi_text}" if multi_text else ""))
 else:
     st.markdown(
-        f"The median request came {num(lead_d['median'])} days before its first session. Half came between "
-        f"{num(lead_d['p25'])} and {num(lead_d['p75'])} days ahead, and only one in ten came more than "
-        f"{num(lead_d['p90'])} days ahead. Of the {public_n} requests, {under_day} "
-        f"({pct(under_day, public_n)}) arrived less than a day before the session they were for.\n\n"
+        f"Half of requests came within {num(lead_d['median'])} days of their first session, and only one in ten "
+        f"came more than {num(lead_d['p90'])} days ahead. Of the {public_n} requests, {under_day} "
+        f"({pct(under_day, public_n)}) came less than a day before.\n\n"
         + multi_text
     )
 
 # 7 ─────────────────────────────────────────────────────────────────────────
 st.header("7. Approval process")
 windows, wait = P["windows"], P["wait"]
-figure(f"Figure 7. Estimated approval wait by submission window, {period.lower()} (n = {public_n})")
+figure(f"Figure 7. Estimated approval wait by when the request was sent, {period.lower()} ({public_n} requests)")
 order = windows.index.tolist()
 fig = go.Figure()
 bins = wait[["bin_order", "wait_bin"]].drop_duplicates().sort_values("bin_order")
@@ -748,7 +790,7 @@ for color, (_, b) in zip(RAMP, bins.iterrows(), strict=True):
 # width on a phone.
 for w, s in windows.iterrows():
     fig.add_annotation(
-        x=0, y=w, xanchor="left", yanchor="bottom", yshift=24, showarrow=False, text=f"<b>{w}</b>  n = {int(s['n'])}"
+        x=0, y=w, xanchor="left", yanchor="bottom", yshift=24, showarrow=False, text=f"<b>{w}</b>  {int(s['n'])} requests"
     )
 fig.update_layout(barmode="stack", bargap=0.6, legend=dict(orientation="h", x=0, y=1.0, yanchor="bottom", traceorder="normal"))
 fig.update_xaxes(range=[0, 100], ticksuffix="%", showgrid=False)
@@ -756,27 +798,27 @@ fig.update_yaxes(autorange="reversed", showticklabels=False)
 show(
     fig,
     wait[["submitted_window", "wait_bin", "requests", "window_requests"]].rename(
-        columns={"submitted_window": "Window", "wait_bin": "Wait", "requests": "Requests", "window_requests": "Window n"}
+        columns={"submitted_window": "Sent", "wait_bin": "Wait", "requests": "Requests", "window_requests": "Requests in group"}
     ),
     340,
     top=64,
 )
 
-figure(f"Table 4. Approval wait by submission window (est.), {period.lower()}")
+figure(f"Table 5. Estimated approval wait by when the request was sent, {period.lower()}")
 st.markdown(
     md_table(
         [
-            [w, int(s["n"]), f"{num(s['median'])} h" if pd.notna(s["median"]) else "–", pct(s["under_1h"], s["n"]), pct(s["over_24h"], s["n"])]
+            [w, int(s["n"]), duration(s["median"]) if pd.notna(s["median"]) else "–", pct(s["under_1h"], s["n"]), pct(s["over_24h"], s["n"])]
             for w, s in windows.iterrows()
         ],
-        ["Window", "n", "Median wait", "Within 1 h", "Over 24 h"],
+        ["Sent", "Requests", "Median wait", "Within 1 hour", "Over 24 hours"],
     )
 )
 if small:
     names = joined([w.lower() for w in small])
     st.caption(
-        f"Fewer than {SMALL_N} requests fall in the {names} {'window' if len(small) == 1 else 'windows'}, "
-        f"so treat {'its' if len(small) == 1 else 'their'} figures as indicative."
+        f"Fewer than {SMALL_N} requests fall in the {names} {'group' if len(small) == 1 else 'groups'}, "
+        f"so treat {'its' if len(small) == 1 else 'their'} figures as a rough guide."
     )
 answered = windows[windows["n"] > 0]  # an empty window has no median to compare
 SENT = {
@@ -786,8 +828,8 @@ SENT = {
 }
 after = int(k["approved_after_start"])
 after_text = (
-    f"\n\nIn {after} {'case' if after == 1 else 'cases'}, the estimated approval time came after the "
-    f"first session had already started; section 8 covers what the backups showed."
+    f"\n\n{'One request appears' if after == 1 else f'{WORDS.get(after, str(after))} requests appear'} to have been "
+    f"approved after {'its' if after == 1 else 'their'} first session had started, which section 8 looks at."
     if after
     else ""
 )
@@ -798,9 +840,9 @@ else:
     if len(answered) >= 2:
         slowest, fastest = answered["median"].idxmax(), answered["median"].idxmin()
         by_window = (
-            f" How long a request waited depended on when it was sent, and {SENT[slowest]} had the longest median "
-            f"wait at {num(answered.loc[slowest, 'median'])} hours (n = {int(answered.loc[slowest, 'n'])}), "
-            f"against {num(answered.loc[fastest, 'median'])} hours for {SENT[fastest]}."
+            f" {SENT[slowest].capitalize()} waited longest, and half of them waited "
+            f"{duration(answered.loc[slowest, 'median'])} or more, against {duration(answered.loc[fastest, 'median'])} "
+            f"for {SENT[fastest]}."
         )
     else:
         by_window = ""
@@ -810,8 +852,8 @@ else:
         notice = (
             f"Long waits matter most when the session is close. Of {public_n} requests, {late} "
             f"({pct(late, public_n)}) were approved less than a day before their first session, and "
-            f"{late - late_ok} of those had been submitted less than two days ahead, which left little room "
-            f"for a faster answer."
+            f"{late - late_ok} of those were submitted less than two days ahead, so there was little time to "
+            f"answer faster."
         )
     if not ahead:
         planned = " No request in this period was submitted two or more days ahead."
@@ -819,26 +861,26 @@ else:
         planned = f" Every one of the {ahead} requests submitted at least two days ahead got at least a day's notice."
     else:
         planned = (
-            f" Among requests submitted at least two days ahead, {late_ok} of {ahead} ({pct(late_ok, ahead)}) "
-            f"still got under a day's notice; these are the cases a faster process could prevent."
+            f" The other {late_ok}, out of {ahead} requests submitted at least two days ahead, "
+            f"{'is the case' if late_ok == 1 else 'are the cases'} a faster process could prevent."
         )
     st.markdown(
-        f"The median wait was {num(wait_d['median'])} hours and three in four requests were approved within "
-        f"{num(wait_d['p75'])} hours, but one in ten waited {num(wait_d['p90'])} hours or more, and the "
-        f"longest took {num(wait_d['max'])} hours.{by_window}\n\n{notice}{planned}"
+        f"Half of requests were approved within {duration(wait_d['median'])} and three in four within "
+        f"{duration(wait_d['p75'])}, but one in ten waited {duration(wait_d['p90'])} or more, and the longest "
+        f"took {duration(wait_d['max'])}.{by_window}\n\n{notice}{planned}"
         + after_text
     )
 
 # 8 ─────────────────────────────────────────────────────────────────────────
 st.header("8. Data quality and instrumentation")
-figure("Table 5. Data-quality checks, all records")
+figure("Table 6. Data-quality checks, all records")
 impact = {
     1: ("Excluded from wait and lead-time metrics; identified by a heuristic.", "Exact from 28 Oct (event log)"),
     2: ("Inflate the wait and notice tails. The nightly backups show no later edit to any of them, so these look like approvals given after the session began.", "Checked against backups"),
     3: ("Part of an admin-entered request, so excluded from lead-time figures.", "No effect"),
     4: ("Weight the heatmap; may include entry errors.", "Unverified"),
     5: ("22:00–06:00 sessions in July; possibly AM/PM entry errors.", "Unverified"),
-    6: ("May and June were development, so these are in no figure in this report.", "Excluded"),
+    6: ("Development and early user testing, so these are in no figure in this report.", "Excluded"),
     7: (
         "None pending at snapshot time." if dq.loc[7, "affected"] == 0
         else "Awaiting a decision at snapshot time; not part of any period figure.",
@@ -860,7 +902,7 @@ st.caption(
     "can differ slightly from the period figures above."
 )
 
-figure("Table 6. Gaps in the source data, and instrumentation added 28 Oct 2026")
+figure("Table 7. Gaps in the source data, and instrumentation added 28 Oct 2026")
 st.markdown(
     md_table(
         [
@@ -878,37 +920,29 @@ st.caption(
 )
 
 st.markdown(
-    "The approval estimate was checked on 4 Nov 2026 against the two other records available. The event "
-    "log has stored exact approval times since 28 Oct, and all four approvals logged by then matched the "
-    "estimate to the second. Telegram cannot date an approval, but the bot pings the admin chat only for "
-    "requests made through the site, and all five avoidable-late requests have a ping, which confirms they "
-    "were real requests and not admin entries edited later. Four of the five were also approved within "
-    "seconds of another booking, which is how clearing the queue looks in the data."
+    "The approval estimate was checked on 4 Nov 2026 against the event log and the admin chat. All four "
+    "approvals logged since 28 Oct matched the estimate to the second, and all five avoidable-late requests "
+    "had a ping in the admin chat, which confirms they came through the site."
 )
 st.markdown(
-    "The check also corrected the method. The estimate used to be the latest update across a request's "
-    "rows, but rows approved together share one timestamp, and two multi-session requests had a row that "
-    "did not. One was an admin entry, edited 11 days later, that had been counted as an 11.4-day wait. The "
-    "other was a 4.5-hour wait recorded as 7.2 days because one session was edited a week after approval. "
-    "Taking the earliest update fixes both. On the 2 Nov snapshot, that moved the median wait from 1.9 to "
-    "1.7 hours, the 90th percentile from 48.7 to 46.5 hours, and avoidable late notice from 5 of 46 to "
-    "5 of 45."
+    "The check also corrected the method. The estimate used to take the latest update across a request's "
+    "rows, which counted later edits as waiting time, so a 4.5-hour wait was recorded as 7.2 days because one "
+    "session was edited a week after approval. It now takes the earliest update. On the 2 Nov snapshot, that "
+    "moved the median wait from 1.9 to 1.7 hours, the 90th percentile from 48.7 to 46.5 hours, and avoidable "
+    "late notice from 5 of 46 to 5 of 45."
 )
 st.markdown(
-    "A single-session request has no other rows to compare against, so the nightly backups were used "
-    "instead. Across 57 backups from 16 September, none of the 46 single-session requests approved in that "
-    "time was edited on a later night, and one admin entry edited later was found counted as public. "
-    "Removing it would make avoidable late notice 5 of 44. The figures here keep it in. Same-day edits and "
-    "anything before 16 September remain unseen until exact figures from the event log replace the "
-    "estimate in the next release."
+    "Single-session requests have no other rows to compare, so 57 nightly backups from 16 Sep were used "
+    "instead. None of the 46 approved in that time was edited on a later night, but one admin entry edited "
+    "later was found counted as public. Removing it would make avoidable late notice 5 of 44, and the figures "
+    "here keep it in. Same-day edits and anything before 16 Sep stay unchecked until the event log replaces "
+    "the estimate in the next release."
 )
 
 # 9 ─────────────────────────────────────────────────────────────────────────
 st.header("9. Findings and actions")
-st.caption("The evidence below uses all-time figures, and the last 8 weeks where stated.")
-ra = for_period("Last 8 weeks")
+st.caption("The evidence below uses all-time figures unless stated.")
 slow_all = ALL["windows"]["median"].idxmax()
-busy8 = ra["occupancy"].idxmax()
 st.markdown(
     md_table(
         [
@@ -921,28 +955,31 @@ st.markdown(
                 "A reminder to admins went live on 6 Nov 2026, as a trial until about 18 Dec."
                 if ka["avoidable_late"]
                 else "None needed; keep watching the measure.",
-                "Avoidable late notice, exact from the event log",
+                "Made early, approved late, exact from the event log",
             ],
             [
                 "2",
-                "Late-night submissions wait longest.",
-                f"Median {num(ALL['windows'].loc[slow_all, 'median'])} h, n = {int(ALL['windows'].loc[slow_all, 'n'])}",
+                "Requests sent late at night wait longest.",
+                f"Median {duration(ALL['windows'].loc[slow_all, 'median'])}, {int(ALL['windows'].loc[slow_all, 'n'])} requests",
                 "None. Consistent with admin availability overnight.",
                 "–",
             ],
             [
                 "3",
-                f"Demand has {growth(recent4 / july)}"
-                + (", partly as post-launch ramp-up and term time" if recent4 / july > 1.15 else "")
-                + f"; {DAY[busy8]} evenings were the most occupied over the last 8 weeks.",
-                f"{recent4 / july:.1f}× July; last 8 weeks: {DAY[busy8]} {num(ra['occupancy'][busy8])}% vs "
-                f"{num(ra['occupancy_overall'])}% all evenings; latest four weeks: {joined(tightest)} at "
-                f"{100 - last_row.min():.0f}% in use",
-                f"Monitor evening occupancy monthly, starting with {joined(tightest)}.",
-                "Evening occupancy",
+                f"Demand has {growth(ratio)}" + (", partly from the launch settling in and term time" if ratio > 1.15 else "") + ".",
+                f"{ratio:.1f}× July",
+                "Monitor monthly.",
+                "Requests per week",
             ],
             [
                 "4",
+                f"{now_busiest}.",
+                f"{last_row.min():.0f}% of hours free, latest four weeks",
+                "Monitor monthly.",
+                "Free evening hours",
+            ],
+            [
+                "5",
                 "Decline rate and form conversion are unmeasured.",
                 "Not recorded before 28 Oct",
                 "Report in the next release.",
@@ -955,14 +992,11 @@ st.markdown(
 
 # 10 ─────────────────────────────────────────────────────────────────────────
 st.header("10. Looking ahead")
-plural = len(tightest) > 1
 st.markdown(
-    f"A reminder for pending requests went live on 6 Nov 2026, as a six-week trial until about 18 Dec. Each "
-    f"morning it messages the admins about any request made at least two days ahead that is still pending "
-    f"with its first session one to two days away. It is aimed at late notice "
-    f"({avoidable_clause(int(ka['avoidable_late']), int(ka['booked_48h_ahead']))}), and the event log added on "
-    f"28 Oct will measure late notice exactly, though about 20 qualifying requests in six weeks can only "
-    f"give a rough guide to its effect."
+    "A reminder for pending requests started on 6 Nov 2026 as a six-week trial until about 18 Dec. Each morning "
+    "it tells admins about any request made at least two days ahead that is still pending one to two days "
+    "before its first session. The event log will measure late approvals exactly, though about 20 qualifying "
+    "requests can only give a rough idea of the effect."
 )
 st.markdown(
     "The findings also point to a few other changes worth building, each with a number from this report to "
@@ -975,8 +1009,8 @@ st.markdown(
   spreading demand before clashes happen. It would change what visitors see, so it is a decision for the
   committee.
 - **Fair use of peak evenings.** If {joined(tightest)} evenings keep
-  filling up, a weekly limit per band on {'those evenings' if plural else 'that evening'} would keep the room
-  fair. Evening occupancy shows when it becomes necessary.
+  filling up, a weekly limit per band on {'those evenings' if many_tight else 'that evening'} would keep the room
+  fair. The share of free evening hours shows when it becomes necessary.
 - **A simpler booking form.** The form-step counts that started on 28 Oct will show which step loses the
   most visitors, so the next change to the form can target that step.
 """

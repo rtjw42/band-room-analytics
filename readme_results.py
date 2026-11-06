@@ -44,7 +44,8 @@ def build() -> str:
     d_all = dist[dist["period"] == "All time"].set_index("sort")
     h_all = heat[heat["period"] == "All time"]
     weeks_all = int(h_all["weeks"].iloc[0])
-    usage_start = pd.Timestamp(all_time["period_end"]) - pd.Timedelta(days=7 * weeks_all - 1)
+    # Real use began on 1 Jul, partway through the first counted week.
+    usage_start = max(pd.Timestamp(all_time["period_end"]) - pd.Timedelta(days=7 * weeks_all - 1), pd.Timestamp("2026-07-01"))
     sessions = int(d_all.loc[4, "n"]) if 4 in d_all.index else 0
 
     complete = weekly[~weekly["partial_week"]]
@@ -61,7 +62,7 @@ def build() -> str:
     h8["free"] = weeks8 - h8["booked_hours"]
     hardest = h8[h8["free"] == h8["free"].min()]
     hardest_text = (
-        f"{len(hardest)} slots tied"
+        f"{len(hardest)} times tied"
         if len(hardest) > 4
         else joined([f"{DAY[r.weekday_name]} {r.hour:02d}:00" for r in hardest.itertuples()])
     )
@@ -90,16 +91,16 @@ def build() -> str:
             "| Metric | Value |",
             "|---|---|",
             f"| Requests per week, last 4 complete weeks vs July | {num(recent4)} vs {num(july)} |",
-            f"| Hour slots in use falling in 19:00–24:00 | {num(evening_share)}% |",
-            f"| Evening occupancy, last 8 weeks (fullest day, {DAY[busiest]} / all days) | {num(by_day[busiest])}% / {num(occ8)}% |",
-            f"| Hardest evening slots, last 8 weeks | {hardest_text}: free {int(h8['free'].min())} of {weeks8} weeks |",
-            f"| Lead time, median (IQR) | {num(d_all.loc[1, 'median'])} days ({num(d_all.loc[1, 'p25'])}–{num(d_all.loc[1, 'p75'])}) |",
+            f"| Hours in use falling in 19:00–24:00 | {num(evening_share)}% |",
+            f"| Evening hours in use, last 8 weeks (fullest day, {DAY[busiest]} / all days) | {num(by_day[busiest])}% / {num(occ8)}% |",
+            f"| Hardest evening times, last 8 weeks | {hardest_text}: free {int(h8['free'].min())} of {weeks8} weeks |",
+            f"| Days ahead (lead time), median (IQR) | {num(d_all.loc[1, 'median'])} days ({num(d_all.loc[1, 'p25'])}–{num(d_all.loc[1, 'p75'])}) |",
             f"| Approval wait, median / p90 (estimated) | {num(d_all.loc[2, 'median'])} h / {num(d_all.loc[2, 'p90'])} h |",
-            f"| Median wait by submission window: daytime / weekend / late night | {median('Weekday daytime')} / {median('Weekend')} / {median('Weekday late night')} |",
+            f"| Median wait by when the request was sent: daytime / weekend / late night | {median('Weekday daytime')} / {median('Weekend')} / {median('Weekday late night')} |",
             f"| Approved < 24 h before first session (estimated) | {pct(int(all_time['under_24h']), int(all_time['public_approved']))} |",
-            f"| Same, among requests made ≥ 48 h ahead | {pct(int(all_time['avoidable_late']), int(all_time['booked_48h_ahead']))} |",
+            f"| Made early, approved late (requests made ≥ 48 h ahead) | {pct(int(all_time['avoidable_late']), int(all_time['booked_48h_ahead']))} |",
             "",
-            "July was the first month of regular use, so part of the rise since then is ramp-up after launch.",
+            "Real use began on 1 Jul 2026, so part of the rise since then is the room settling in after launch.",
             END,
         ]
     )

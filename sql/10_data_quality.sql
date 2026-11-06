@@ -26,7 +26,7 @@ from (values
        where status = 'approved'
          and (end_time at time zone 'Asia/Singapore')::date > (start_time at time zone 'Asia/Singapore')::date
          and (end_time at time zone 'Asia/Singapore')::time > time '03:00'), 'sessions'),
-  (6, 'Development sessions left out (scheduled before 1 Jul 2026)',
+  (6, 'Sessions from before real use began (scheduled before 1 Jul 2026)',
       (select count(*) from public.bookings where start_time < timestamptz '2026-07-01 00:00+08'), 'sessions'),
   (7, 'Pending requests at snapshot time',
       (select count(distinct coalesce(group_id, id)) from public.bookings where status = 'pending'), 'requests')

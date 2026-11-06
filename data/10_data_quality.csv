@@ -4,5 +4,5 @@ sort,check_name,affected,unit
 3,Sessions entered after they started (backfilled),1,sessions
 4,Sessions longer than 6 hours,5,sessions
 5,Sessions running past 03:00 SGT,2,sessions
-6,Development sessions left out (scheduled before 1 Jul 2026),7,sessions
+6,Sessions from before real use began (scheduled before 1 Jul 2026),7,sessions
 7,Pending requests at snapshot time,0,requests

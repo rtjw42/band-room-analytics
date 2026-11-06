@@ -2,7 +2,7 @@
 from streamlit.testing.v1 import AppTest
 
 PERIODS = ["All time", "Last 8 weeks", "Last 4 weeks"]
-VIEWS = ["Hours in use", "Share of weeks in use"]
+VIEWS = ["Weeks in use", "% of weeks"]
 
 
 def render(period: str, view: str) -> AppTest:

@@ -14,7 +14,7 @@ quality. Includes an animated chart of how evening availability changed, four we
 |---|---|
 | Source | Booking database (Postgres, Supabase): `bookings`, `booking_groups` |
 | Requests | Submitted 18 Jun 2026 – 1 Nov 2026 (the last complete week before the snapshot) |
-| Sessions | Held 29 Jun 2026 – 1 Nov 2026; every approved session falls in this range |
+| Sessions | Held 1 Jul 2026 – 1 Nov 2026; every approved session falls in this range |
 | Snapshot | 6 Nov 2026, SGT |
 | Size | 105 requests; 73 public requests with a measurable wait; 109 approved sessions |
 | Unit | Request (`coalesce(group_id, id)`) unless stated |
@@ -25,16 +25,16 @@ quality. Includes an animated chart of how evening availability changed, four we
 | Metric | Value |
 |---|---|
 | Requests per week, last 4 complete weeks vs July | 9.5 vs 4.5 |
-| Hour slots in use falling in 19:00–24:00 | 69% |
-| Evening occupancy, last 8 weeks (fullest day, Friday / all days) | 60% / 41.8% |
-| Hardest evening slots, last 8 weeks | Friday 21:00 and Friday 22:00: free 1 of 8 weeks |
-| Lead time, median (IQR) | 2.9 days (1.2–4.2) |
+| Hours in use falling in 19:00–24:00 | 69% |
+| Evening hours in use, last 8 weeks (fullest day, Friday / all days) | 60% / 41.8% |
+| Hardest evening times, last 8 weeks | Friday 21:00 and Friday 22:00: free 1 of 8 weeks |
+| Days ahead (lead time), median (IQR) | 2.9 days (1.2–4.2) |
 | Approval wait, median / p90 (estimated) | 1.7 h / 46.5 h |
-| Median wait by submission window: daytime / weekend / late night | 0.3 h / 2.2 h / 14.1 h |
+| Median wait by when the request was sent: daytime / weekend / late night | 0.3 h / 2.2 h / 14.1 h |
 | Approved < 24 h before first session (estimated) | 32.9% (24 of 73) |
-| Same, among requests made ≥ 48 h ahead | 11.1% (5 of 45) |
+| Made early, approved late (requests made ≥ 48 h ahead) | 11.1% (5 of 45) |
 
-July was the first month of regular use, so part of the rise since then is ramp-up after launch.
+Real use began on 1 Jul 2026, so part of the rise since then is the room settling in after launch.
 <!-- generated:end -->
 
 ## Repository layout
@@ -60,7 +60,8 @@ rows per period; the report's period filter selects rows and recomputes nothing.
 - **Declined requests are hard-deleted**, so decline rate is not measurable from this snapshot.
 - **Admin-entered requests** are identified by `updated_at = created_at` on any row and
   excluded from wait and lead-time metrics.
-- **May and June 2026 were development**, so bookings for sessions before 1 Jul are left out of
+- **Real use began on 1 Jul 2026.** Before that the site was in development, and the last few
+  weeks of June were early user testing, so bookings for sessions before 1 Jul are left out of
   every figure.
 - Instrumentation added on 28 Oct 2026 (an event log of status changes and hourly booking-form
   step counts) removes the first two gaps from the next snapshot onward.

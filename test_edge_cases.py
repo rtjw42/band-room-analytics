@@ -112,7 +112,16 @@ def test_no_late_approvals() -> None:
 
 def test_all_evenings_tied() -> None:
     text = render(variant(all_evenings_tied), "Last 8 weeks")
-    assert "35 evening slots tied as the hardest to get" in text
+    assert "35 evening times tied as the hardest to book" in text
+    assert "| Mon | – | All evening | – |" in text
+
+
+def test_days_before_real_use_not_counted() -> None:
+    """29-30 Jun sit in the first week but before real use, so they are not free hours."""
+    used = pd.read_csv(REAL / "11_evening_by_week.csv")
+    first = used.loc[used["week_start"] < "2026-07-27", "evening_slots_in_use"].sum()
+    text = render(REAL, "All time")
+    assert f"fell from {100 - 100 * first / 130:.0f}% in the four weeks to 26 Jul" in text
 
 
 def test_flat_demand() -> None:
