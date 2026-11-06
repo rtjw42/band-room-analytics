@@ -871,10 +871,12 @@ st.markdown(
     "5 of 45."
 )
 st.markdown(
-    "One limit remains. A single-session request has no other rows to compare against, so an edit after "
-    "approval still passes for a long wait. Two of the 16 rows in multi-session requests were edited "
-    "later, so some single-session waits are probably overstated, mostly at the long end, and the median "
-    "is far less exposed. Exact figures from the event log remove this limit from the next release."
+    "A single-session request has no other rows to compare against, so the nightly backups were used "
+    "instead. Across 57 backups from 16 September, none of the 46 single-session requests approved in that "
+    "time was edited on a later night, and one admin entry edited later was found counted as public. "
+    "Removing it would make avoidable late notice 5 of 44. The figures here keep it in. Same-day edits and "
+    "anything before 16 September remain unseen until exact figures from the event log replace the "
+    "estimate in the next release."
 )
 
 # 9 ─────────────────────────────────────────────────────────────────────────
