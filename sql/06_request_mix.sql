@@ -3,6 +3,7 @@
 -- Periods (all time, last 8 weeks, last 4 weeks) end at the start of the current week, SGT,
 -- so every figure covers complete weeks only and no upcoming sessions. A request belongs
 -- to the period it was submitted in; a session to the period it took place in.
+-- Development: bookings for sessions before 1 Jul 2026 are left out.
 with bounds as (
   select date_trunc('week', now() at time zone 'Asia/Singapore') as cutoff  -- start of the current week, SGT
 ),
@@ -16,10 +17,11 @@ req2 as (
          coalesce(g.kind, 'one-off')     as kind,
          min(b.created_at)               as asked,
          bool_and(b.status = 'approved') as approved,
-         bool_or(b.status = 'rejected')  as bumped,
+         bool_or(b.status = 'rejected')  as was_rejected,
          count(*)                        as sessions
   from public.bookings b
   left join public.booking_groups g on g.id = b.group_id
+  where b.start_time >= timestamptz '2026-07-01 00:00+08'
   group by 1, 2
 ),
 rp as (
@@ -30,7 +32,7 @@ select period_order, period, 'Type' as dimension, kind as label, count(*) as req
 from rp where approved group by 1, 2, 4
 union all
 select period_order, period, 'Outcome',
-       case when bumped then 'Bumped' when approved then 'Approved' else 'Pending' end,
+       case when was_rejected then 'Rejected' when approved then 'Approved' else 'Pending' end,
        count(*), sum(sessions)
 from rp group by 1, 2, 4
 order by 1, 3, 5 desc;

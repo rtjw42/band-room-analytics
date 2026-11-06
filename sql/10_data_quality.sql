@@ -1,5 +1,6 @@
 -- Data-quality counts, long format. Each row is a check against public.bookings with
 -- the number of affected requests or sessions; interpretation lives in the report.
+-- Development: bookings for sessions before 1 Jul 2026 are left out.
 with req as (
   select min(created_at)                   as asked,
          min(updated_at)                   as approved_est,
@@ -7,6 +8,7 @@ with req as (
          bool_and(status = 'approved')     as approved,
          bool_or(updated_at = created_at)  as admin_entered
   from public.bookings
+  where start_time >= timestamptz '2026-07-01 00:00+08'
   group by coalesce(group_id, id)
 )
 select sort, check_name, affected, unit
@@ -24,13 +26,9 @@ from (values
        where status = 'approved'
          and (end_time at time zone 'Asia/Singapore')::date > (start_time at time zone 'Asia/Singapore')::date
          and (end_time at time zone 'Asia/Singapore')::time > time '03:00'), 'sessions'),
-  (6, 'Approved sessions later displaced by an overlapping approval',
-      (select count(*) from public.bookings where status = 'rejected'), 'sessions'),
+  (6, 'Development sessions left out (scheduled before 1 Jul 2026)',
+      (select count(*) from public.bookings where start_time < timestamptz '2026-07-01 00:00+08'), 'sessions'),
   (7, 'Pending requests at snapshot time',
-      (select count(distinct coalesce(group_id, id)) from public.bookings where status = 'pending'), 'requests'),
-  (8, 'Displaced sessions scheduled before the first approved session',
-      (select count(*) from public.bookings
-       where status = 'rejected'
-         and start_time < (select min(start_time) from public.bookings where status = 'approved')), 'sessions')
+      (select count(distinct coalesce(group_id, id)) from public.bookings where status = 'pending'), 'requests')
 ) v(sort, check_name, affected, unit)
 order by sort;

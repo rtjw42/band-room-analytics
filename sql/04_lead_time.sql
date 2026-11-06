@@ -3,6 +3,7 @@
 -- Periods (all time, last 8 weeks, last 4 weeks) end at the start of the current week, SGT,
 -- so every figure covers complete weeks only and no upcoming sessions. A request belongs
 -- to the period it was submitted in; a session to the period it took place in.
+-- Development: bookings for sessions before 1 Jul 2026 are left out.
 with bounds as (
   select date_trunc('week', now() at time zone 'Asia/Singapore') as cutoff  -- start of the current week, SGT
 ),
@@ -19,6 +20,7 @@ req as (
          bool_or(updated_at = created_at)  as admin_entered,
          bool_or(group_id is not null)     as grouped
   from public.bookings
+  where start_time >= timestamptz '2026-07-01 00:00+08'
   group by coalesce(group_id, id)
 ),
 pub as (

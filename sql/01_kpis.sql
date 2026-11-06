@@ -6,6 +6,7 @@
 -- A row with updated_at = created_at was inserted already approved, so its request is admin-entered.
 -- Approval time is ESTIMATED as min(updated_at): one approval stamps every row of a request and a
 -- later edit moves only the rows it touches. An edit to a single-session request still inflates it.
+-- Development: bookings for sessions before 1 Jul 2026 are left out.
 with bounds as (
   select date_trunc('week', now() at time zone 'Asia/Singapore') as cutoff  -- start of the current week, SGT
 ),
@@ -22,6 +23,7 @@ req as (
          bool_or(updated_at = created_at)  as admin_entered,
          bool_or(group_id is not null)     as grouped
   from public.bookings
+  where start_time >= timestamptz '2026-07-01 00:00+08'
   group by coalesce(group_id, id)
 ),
 rp as (
@@ -30,7 +32,7 @@ rp as (
   left join req r on r.asked at time zone 'Asia/Singapore' >= p.start_local and r.asked at time zone 'Asia/Singapore' < p.end_local
 )
 select period_order, period,
-       coalesce(nullif(start_local, '-infinity'), (select min(created_at at time zone 'Asia/Singapore') from public.bookings))::date as period_start,
+       coalesce(nullif(start_local, '-infinity'), (select min(created_at at time zone 'Asia/Singapore') from public.bookings where start_time >= timestamptz '2026-07-01 00:00+08'))::date as period_start,
        (end_local - interval '1 day')::date as period_end,
        count(asked)                                                                       as requests,
        count(*) filter (where approved)                                                   as approved,

@@ -1,6 +1,5 @@
 period_order,period,dimension,label,requests,sessions
 1,All time,Outcome,Approved,105,114
-1,All time,Outcome,Bumped,7,7
 1,All time,Type,one-off,96,96
 1,All time,Type,custom,8,16
 1,All time,Type,pattern,1,2

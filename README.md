@@ -13,10 +13,10 @@ quality. Includes an animated chart of how evening availability changed, four we
 | | |
 |---|---|
 | Source | Booking database (Postgres, Supabase): `bookings`, `booking_groups` |
-| Requests | Submitted 30 Apr 2026 – 1 Nov 2026 (the last complete week before the snapshot) |
+| Requests | Submitted 18 Jun 2026 – 1 Nov 2026 (the last complete week before the snapshot) |
 | Sessions | Held 29 Jun 2026 – 1 Nov 2026; every approved session falls in this range |
-| Snapshot | 4 Nov 2026, SGT |
-| Size | 112 requests; 73 public requests with a measurable wait; 109 approved sessions |
+| Snapshot | 6 Nov 2026, SGT |
+| Size | 105 requests; 73 public requests with a measurable wait; 109 approved sessions |
 | Unit | Request (`coalesce(group_id, id)`) unless stated |
 | Periods | All time, last 8 weeks, last 4 weeks, selectable in the report |
 
@@ -60,7 +60,8 @@ rows per period; the report's period filter selects rows and recomputes nothing.
 - **Declined requests are hard-deleted**, so decline rate is not measurable from this snapshot.
 - **Admin-entered requests** are identified by `updated_at = created_at` on any row and
   excluded from wait and lead-time metrics.
-- **All 7 displaced sessions predate regular use** (scheduled in May–June); none since.
+- **May and June 2026 were development**, so bookings for sessions before 1 Jul are left out of
+  every figure.
 - Instrumentation added on 28 Oct 2026 (an event log of status changes and hourly booking-form
   step counts) removes the first two gaps from the next snapshot onward.
 

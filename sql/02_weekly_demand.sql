@@ -1,12 +1,14 @@
 -- Requests and sessions per week (Monday start, SGT), by submission time. Weeks
 -- with no requests are filled with zeros so the line does not skip them.
 -- likely_admin_entered: requests inserted already approved (estimate).
+-- Development: bookings for sessions before 1 Jul 2026 are left out.
 with r as (
   select coalesce(group_id, id)                              as rid,
          min(created_at at time zone 'Asia/Singapore')       as asked,
          count(*)                                            as sessions,
          bool_and(status = 'approved') and bool_or(updated_at = created_at) as admin_entered
   from public.bookings
+  where start_time >= timestamptz '2026-07-01 00:00+08'
   group by 1
 ),
 w as (
